@@ -1,6 +1,6 @@
 export const metadata = {
-  title: 'Red Carpet Awards Voting',
-  description: 'Vote for your favorite actress at the Red Carpet Awards Party',
+  title: 'Red Carpet Awards - Vote for Best Actress & Actor',
+  description: 'Vote for your favorite Hollywood stars at the Red Carpet Awards Party',
 };
 
 export default function RootLayout({ children }) {
