@@ -1,6 +1,6 @@
 {
-  "name": "red-carpet-voting",
-  "version": "1.0.0",
+  "name": "red-carpet-awards-voting",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
