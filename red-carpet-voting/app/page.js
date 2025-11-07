@@ -125,6 +125,13 @@ export default function RedCarpetVoting() {
   useEffect(() => {
     const fp = getBrowserFingerprint();
     setFingerprint(fp);
+
+    // Load voter name from localStorage
+    const savedName = localStorage.getItem('voterName');
+    if (savedName) {
+      setVoterName(savedName);
+    }
+
     loadData();
     const interval = setInterval(loadData, 2000);
     return () => clearInterval(interval);
@@ -176,8 +183,10 @@ export default function RedCarpetVoting() {
       const data = await response.json();
 
       if (response.ok) {
+        // Save voter name to localStorage for persistence
+        localStorage.setItem('voterName', voterName.trim());
+
         alert('Thank you for voting! 🌟');
-        setVoterName('');
         setSelectedItems([]);
         setView('dashboard');
         loadData();
@@ -250,14 +259,14 @@ export default function RedCarpetVoting() {
       return;
     }
 
-    // Get all voters who voted for any of the tied choices
-    const eligibleVoters = [];
+    // Get all fingerprints who voted for any of the tied choices
+    const eligibleFingerprints = [];
     votes[cat].forEach(vote => {
       const votedForTiedChoice = vote.selections.some(selection =>
         tiedChoices.find(tc => tc.name === selection)
       );
-      if (votedForTiedChoice && !eligibleVoters.includes(vote.name)) {
-        eligibleVoters.push(vote.name);
+      if (votedForTiedChoice && !eligibleFingerprints.includes(vote.fingerprint)) {
+        eligibleFingerprints.push(vote.fingerprint);
       }
     });
 
@@ -269,11 +278,11 @@ export default function RedCarpetVoting() {
           action: 'startTiebreaker',
           category: cat,
           tiedChoices: tiedChoices.map(tc => tc.name),
-          eligibleVoters
+          eligibleFingerprints
         }),
       });
       loadData();
-      alert(`Tiebreaker started! ${eligibleVoters.length} voters are eligible to vote.`);
+      alert(`Tiebreaker started! ${eligibleFingerprints.length} voters are eligible to vote.`);
     } catch (error) {
       alert('Failed to start tiebreaker');
     }
@@ -313,7 +322,7 @@ export default function RedCarpetVoting() {
           const currentTiebreaker = latestData.tiebreakers?.[cat];
 
           if (currentTiebreaker && currentTiebreaker.active) {
-            const allVoted = currentTiebreaker.votes.length === currentTiebreaker.eligibleVoters.length;
+            const allVoted = currentTiebreaker.votes.length === currentTiebreaker.eligibleFingerprints.length;
 
             if (allVoted) {
               // Auto-resolve the tiebreaker
@@ -341,7 +350,7 @@ export default function RedCarpetVoting() {
 
     if (stillTied.length > 1) {
       // Still a tie, start another round automatically
-      const eligibleVoters = tiebreakers[cat].eligibleVoters;
+      const eligibleFingerprints = tiebreakers[cat].eligibleFingerprints;
 
       try {
         await fetch('/api/votes', {
@@ -351,7 +360,7 @@ export default function RedCarpetVoting() {
             action: 'startTiebreaker',
             category: cat,
             tiedChoices: stillTied.map(tc => tc.name),
-            eligibleVoters
+            eligibleFingerprints
           }),
         });
         loadData();
@@ -391,7 +400,7 @@ export default function RedCarpetVoting() {
 
     if (stillTied.length > 1) {
       // Still a tie, start another round
-      const eligibleVoters = tiebreakers[cat].eligibleVoters;
+      const eligibleFingerprints = tiebreakers[cat].eligibleFingerprints;
 
       try {
         await fetch('/api/votes', {
@@ -401,7 +410,7 @@ export default function RedCarpetVoting() {
             action: 'startTiebreaker',
             category: cat,
             tiedChoices: stillTied.map(tc => tc.name),
-            eligibleVoters
+            eligibleFingerprints
           }),
         });
         loadData();
@@ -627,8 +636,8 @@ export default function RedCarpetVoting() {
     }
 
     const color = category === 'actresses' ? 'yellow' : 'blue';
-    const isEligible = tiebreaker.eligibleVoters.includes(voterName);
-    const hasVotedInTiebreaker = tiebreaker.votes.some(v => v.name === voterName);
+    const isEligible = tiebreaker.eligibleFingerprints?.includes(fingerprint);
+    const hasVotedInTiebreaker = tiebreaker.votes.some(v => v.fingerprint === fingerprint);
 
     return (
       <div className={`min-h-screen bg-gradient-to-br from-${color === 'yellow' ? 'purple' : 'blue'}-900 via-${color === 'yellow' ? 'red' : 'purple'}-900 to-black text-white p-6`}>
@@ -645,7 +654,7 @@ export default function RedCarpetVoting() {
               <p className="text-yellow-400 font-semibold mb-2">Tied Choices:</p>
               <p className="text-white">{tiebreaker.tiedChoices.join(', ')}</p>
               <p className="text-sm text-gray-300 mt-2">
-                Only voters who voted for these choices can participate: {tiebreaker.eligibleVoters.length} eligible voters
+                Only voters who voted for these choices can participate: {tiebreaker.eligibleFingerprints?.length || 0} eligible voters
               </p>
             </div>
 
@@ -731,6 +740,13 @@ export default function RedCarpetVoting() {
     const actorResults = calculateResults('actors');
     const maxBubbleSize = 150;
     const minBubbleSize = 50;
+
+    // Check if user is eligible for any active tiebreaker (based on fingerprint)
+    const isEligibleForActressesTiebreaker = tiebreakers.actresses?.active &&
+      tiebreakers.actresses.eligibleFingerprints?.includes(fingerprint);
+    const isEligibleForActorsTiebreaker = tiebreakers.actors?.active &&
+      tiebreakers.actors.eligibleFingerprints?.includes(fingerprint);
+    const hasActiveTiebreaker = tiebreakers.actresses?.active || tiebreakers.actors?.active;
 
     // Render spinning wheel component
     const renderSpinningWheel = (cat, results, color) => {
@@ -873,6 +889,16 @@ export default function RedCarpetVoting() {
             </div>
           </div>
 
+          {/* Show eligibility message if user is eligible for tiebreaker */}
+          {hasActiveTiebreaker && (isEligibleForActressesTiebreaker || isEligibleForActorsTiebreaker) && (
+            <div className="mb-8 max-w-2xl mx-auto">
+              <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 backdrop-blur-lg rounded-2xl p-6 border-2 border-green-500 shadow-2xl text-center">
+                <h3 className="text-2xl font-bold text-green-400 mb-3">🔥 You're Eligible for Tiebreaker!</h3>
+                <p className="text-white">You voted for one of the tied choices. Scroll down to see the tiebreaker voting button in the relevant category section.</p>
+              </div>
+            </div>
+          )}
+
           <div className="grid lg:grid-cols-2 gap-8 mb-8">
             {/* Actresses */}
             <div className="bg-black/40 backdrop-blur-lg rounded-2xl p-6 border-2 border-yellow-500/30">
@@ -890,12 +916,12 @@ export default function RedCarpetVoting() {
                   <p className="text-orange-400 font-bold text-lg mb-2">🔥 TIEBREAKER ROUND {tiebreakers.actresses.round} ACTIVE!</p>
                   <p className="text-white mb-2">Tied: {tiebreakers.actresses.tiedChoices.join(', ')}</p>
                   <p className="text-sm text-gray-300 mb-3">
-                    {tiebreakers.actresses.votes.length} / {tiebreakers.actresses.eligibleVoters.length} eligible voters have voted
+                    {tiebreakers.actresses.votes.length} / {tiebreakers.actresses.eligibleFingerprints?.length || 0} eligible voters have voted
                   </p>
                   <p className="text-xs text-yellow-300 mb-3">
                     ⚡ When all eligible voters vote, the system will automatically check and start a new round if still tied, or end the tiebreaker if resolved!
                   </p>
-                  {tiebreakers.actresses.eligibleVoters.includes(voterName) && (
+                  {isEligibleForActressesTiebreaker && (
                     <button
                       onClick={() => {
                         setCategory('actresses');
@@ -903,7 +929,7 @@ export default function RedCarpetVoting() {
                       }}
                       className="w-full px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg font-semibold transition-colors"
                     >
-                      {tiebreakers.actresses.votes.some(v => v.name === voterName) ? '✓ You Voted' : '→ Vote in Tiebreaker'}
+                      {tiebreakers.actresses.votes.some(v => v.fingerprint === fingerprint) ? '✓ You Voted' : '→ Vote in Tiebreaker'}
                     </button>
                   )}
                 </div>
@@ -990,12 +1016,12 @@ export default function RedCarpetVoting() {
                   <p className="text-cyan-400 font-bold text-lg mb-2">🔥 TIEBREAKER ROUND {tiebreakers.actors.round} ACTIVE!</p>
                   <p className="text-white mb-2">Tied: {tiebreakers.actors.tiedChoices.join(', ')}</p>
                   <p className="text-sm text-gray-300 mb-3">
-                    {tiebreakers.actors.votes.length} / {tiebreakers.actors.eligibleVoters.length} eligible voters have voted
+                    {tiebreakers.actors.votes.length} / {tiebreakers.actors.eligibleFingerprints?.length || 0} eligible voters have voted
                   </p>
                   <p className="text-xs text-cyan-300 mb-3">
                     ⚡ When all eligible voters vote, the system will automatically check and start a new round if still tied, or end the tiebreaker if resolved!
                   </p>
-                  {tiebreakers.actors.eligibleVoters.includes(voterName) && (
+                  {isEligibleForActorsTiebreaker && (
                     <button
                       onClick={() => {
                         setCategory('actors');
@@ -1003,7 +1029,7 @@ export default function RedCarpetVoting() {
                       }}
                       className="w-full px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg font-semibold transition-colors"
                     >
-                      {tiebreakers.actors.votes.some(v => v.name === voterName) ? '✓ You Voted' : '→ Vote in Tiebreaker'}
+                      {tiebreakers.actors.votes.some(v => v.fingerprint === fingerprint) ? '✓ You Voted' : '→ Vote in Tiebreaker'}
                     </button>
                   )}
                 </div>
