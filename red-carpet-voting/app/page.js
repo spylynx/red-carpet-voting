@@ -1066,13 +1066,32 @@ export default function RedCarpetVoting() {
                     </div>
 
                     {/* Top Choice */}
-                    {actressResults[0] && actressResults[0].count > 0 && (
-                      <div className="mt-3 pt-3 border-t border-yellow-500/30">
-                        <p className="text-gray-400 text-xs mb-1">Top Choice:</p>
-                        <p className="text-yellow-400 font-semibold">{actressResults[0].name}</p>
-                        <p className="text-gray-400 text-xs">{actressResults[0].count} votes</p>
-                      </div>
-                    )}
+                    {(() => {
+                      // Check if tiebreaker was resolved - show tiebreaker winner
+                      if (tiebreakers.actresses && tiebreakers.actresses.votes && tiebreakers.actresses.votes.length > 0) {
+                        const tiebreakerResults = calculateTiebreakerResults('actresses');
+                        if (tiebreakerResults && tiebreakerResults[0] && tiebreakerResults[0].count > 0) {
+                          return (
+                            <div className="mt-3 pt-3 border-t border-yellow-500/30">
+                              <p className="text-gray-400 text-xs mb-1">🔥 Tiebreaker Winner:</p>
+                              <p className="text-yellow-400 font-semibold">{tiebreakerResults[0].name}</p>
+                              <p className="text-gray-400 text-xs">{tiebreakerResults[0].count} tiebreaker votes</p>
+                            </div>
+                          );
+                        }
+                      }
+                      // Show main round top choice
+                      if (actressResults[0] && actressResults[0].count > 0) {
+                        return (
+                          <div className="mt-3 pt-3 border-t border-yellow-500/30">
+                            <p className="text-gray-400 text-xs mb-1">Top Choice:</p>
+                            <p className="text-yellow-400 font-semibold">{actressResults[0].name}</p>
+                            <p className="text-gray-400 text-xs">{actressResults[0].count} votes</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 </div>
 
@@ -1109,13 +1128,32 @@ export default function RedCarpetVoting() {
                     </div>
 
                     {/* Top Choice */}
-                    {actorResults[0] && actorResults[0].count > 0 && (
-                      <div className="mt-3 pt-3 border-t border-blue-500/30">
-                        <p className="text-gray-400 text-xs mb-1">Top Choice:</p>
-                        <p className="text-blue-400 font-semibold">{actorResults[0].name}</p>
-                        <p className="text-gray-400 text-xs">{actorResults[0].count} votes</p>
-                      </div>
-                    )}
+                    {(() => {
+                      // Check if tiebreaker was resolved - show tiebreaker winner
+                      if (tiebreakers.actors && tiebreakers.actors.votes && tiebreakers.actors.votes.length > 0) {
+                        const tiebreakerResults = calculateTiebreakerResults('actors');
+                        if (tiebreakerResults && tiebreakerResults[0] && tiebreakerResults[0].count > 0) {
+                          return (
+                            <div className="mt-3 pt-3 border-t border-blue-500/30">
+                              <p className="text-gray-400 text-xs mb-1">🔥 Tiebreaker Winner:</p>
+                              <p className="text-blue-400 font-semibold">{tiebreakerResults[0].name}</p>
+                              <p className="text-gray-400 text-xs">{tiebreakerResults[0].count} tiebreaker votes</p>
+                            </div>
+                          );
+                        }
+                      }
+                      // Show main round top choice
+                      if (actorResults[0] && actorResults[0].count > 0) {
+                        return (
+                          <div className="mt-3 pt-3 border-t border-blue-500/30">
+                            <p className="text-gray-400 text-xs mb-1">Top Choice:</p>
+                            <p className="text-blue-400 font-semibold">{actorResults[0].name}</p>
+                            <p className="text-gray-400 text-xs">{actorResults[0].count} votes</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 </div>
               </div>
