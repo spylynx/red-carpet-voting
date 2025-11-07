@@ -11,17 +11,24 @@ let pollStatus = {
   actorsOpen: true
 };
 
+// Tiebreaker storage
+let tiebreakers = {
+  actresses: { active: false, round: 0, votes: [], tiedChoices: [], eligibleVoters: [] },
+  actors: { active: false, round: 0, votes: [], tiedChoices: [], eligibleVoters: [] }
+};
+
 export async function GET() {
-  return NextResponse.json({ 
+  return NextResponse.json({
     votes,
-    pollStatus
+    pollStatus,
+    tiebreakers
   });
 }
 
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { category, name, selections, fingerprint } = body;
+    const { category, name, selections, fingerprint, isTiebreaker } = body;
 
     if (!category || !name || !selections || !Array.isArray(selections) || !fingerprint) {
       return NextResponse.json(
@@ -37,7 +44,61 @@ export async function POST(request) {
       );
     }
 
-    // Check if poll is open
+    // Handle tiebreaker vote
+    if (isTiebreaker) {
+      const tiebreaker = tiebreakers[category];
+
+      if (!tiebreaker.active) {
+        return NextResponse.json(
+          { error: 'No active tiebreaker for this category' },
+          { status: 400 }
+        );
+      }
+
+      // Check if voter is eligible
+      if (!tiebreaker.eligibleVoters.includes(name)) {
+        return NextResponse.json(
+          { error: 'You are not eligible to vote in this tiebreaker round' },
+          { status: 403 }
+        );
+      }
+
+      // Check if already voted in this tiebreaker round
+      const alreadyVoted = tiebreaker.votes.some(v => v.name === name);
+      if (alreadyVoted) {
+        return NextResponse.json(
+          { error: 'You have already voted in this tiebreaker round!' },
+          { status: 400 }
+        );
+      }
+
+      // Tiebreaker vote should be for ONE choice only
+      if (selections.length !== 1) {
+        return NextResponse.json(
+          { error: 'Please select exactly ONE choice for tiebreaker' },
+          { status: 400 }
+        );
+      }
+
+      // Must be one of the tied choices
+      if (!tiebreaker.tiedChoices.includes(selections[0])) {
+        return NextResponse.json(
+          { error: 'Invalid choice for tiebreaker' },
+          { status: 400 }
+        );
+      }
+
+      tiebreaker.votes.push({
+        name,
+        selection: selections[0],
+        fingerprint,
+        timestamp: new Date().toISOString()
+      });
+
+      return NextResponse.json({ success: true, isTiebreaker: true });
+    }
+
+    // Regular vote handling
     if (!pollStatus[`${category}Open`]) {
       return NextResponse.json(
         { error: 'This poll is currently closed' },
@@ -90,7 +151,7 @@ export async function POST(request) {
 export async function PUT(request) {
   try {
     const body = await request.json();
-    const { action, category, status } = body;
+    const { action, category, status, tiedChoices, eligibleVoters } = body;
 
     if (action === 'togglePoll') {
       if (!['actresses', 'actors'].includes(category)) {
@@ -101,10 +162,53 @@ export async function PUT(request) {
       }
 
       pollStatus[`${category}Open`] = status;
-      
-      return NextResponse.json({ 
+
+      return NextResponse.json({
         success: true,
-        pollStatus 
+        pollStatus
+      });
+    }
+
+    if (action === 'startTiebreaker') {
+      if (!['actresses', 'actors'].includes(category)) {
+        return NextResponse.json(
+          { error: 'Invalid category' },
+          { status: 400 }
+        );
+      }
+
+      tiebreakers[category] = {
+        active: true,
+        round: (tiebreakers[category]?.round || 0) + 1,
+        votes: [],
+        tiedChoices: tiedChoices || [],
+        eligibleVoters: eligibleVoters || []
+      };
+
+      return NextResponse.json({
+        success: true,
+        tiebreaker: tiebreakers[category]
+      });
+    }
+
+    if (action === 'resolveTiebreaker') {
+      if (!['actresses', 'actors'].includes(category)) {
+        return NextResponse.json(
+          { error: 'Invalid category' },
+          { status: 400 }
+        );
+      }
+
+      tiebreakers[category] = {
+        active: false,
+        round: tiebreakers[category]?.round || 0,
+        votes: [],
+        tiedChoices: [],
+        eligibleVoters: []
+      };
+
+      return NextResponse.json({
+        success: true
       });
     }
 
@@ -128,6 +232,10 @@ export async function DELETE() {
   pollStatus = {
     actressesOpen: true,
     actorsOpen: true
+  };
+  tiebreakers = {
+    actresses: { active: false, round: 0, votes: [], tiedChoices: [], eligibleVoters: [] },
+    actors: { active: false, round: 0, votes: [], tiedChoices: [], eligibleVoters: [] }
   };
   return NextResponse.json({ success: true });
 }
