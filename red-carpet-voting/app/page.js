@@ -59,6 +59,21 @@ const LockIcon = ({ size = 24 }) => (
   </svg>
 );
 
+const SparklesIcon = ({ size = 24 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/>
+    <path d="M19 12l.75 2.25L22 15l-2.25.75L19 18l-.75-2.25L16 15l2.25-.75L19 12z"/>
+    <path d="M5 17l.5 1.5L7 19l-1.5.5L5 21l-.5-1.5L3 19l1.5-.5L5 17z"/>
+  </svg>
+);
+
+const AwardIcon = ({ size = 24 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
+    <circle cx="12" cy="9" r="5"/>
+    <path d="M16 11l1 8h-2l-3-3-3 3H7l1-8"/>
+  </svg>
+);
+
 // Browser fingerprinting
 const getBrowserFingerprint = () => {
   const canvas = document.createElement('canvas');
@@ -66,7 +81,7 @@ const getBrowserFingerprint = () => {
   ctx.textBaseline = 'top';
   ctx.font = '14px Arial';
   ctx.fillText('fingerprint', 2, 2);
-  
+
   const data = [
     navigator.userAgent,
     navigator.language,
@@ -75,7 +90,7 @@ const getBrowserFingerprint = () => {
     new Date().getTimezoneOffset(),
     canvas.toDataURL()
   ].join('###');
-  
+
   let hash = 0;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);
@@ -98,6 +113,11 @@ export default function RedCarpetVoting() {
   const [pinInput, setPinInput] = useState('');
   const [pinAction, setPinAction] = useState(null);
 
+  // Spinning wheel states for both categories
+  const [isSpinning, setIsSpinning] = useState({ actresses: false, actors: false });
+  const [winner, setWinner] = useState({ actresses: null, actors: null });
+  const [spinRotation, setSpinRotation] = useState({ actresses: 0, actors: 0 });
+
   useEffect(() => {
     const fp = getBrowserFingerprint();
     setFingerprint(fp);
@@ -112,7 +132,7 @@ export default function RedCarpetVoting() {
       const data = await response.json();
       setVotes(data.votes || { actresses: [], actors: [] });
       setPollStatus(data.pollStatus || { actressesOpen: true, actorsOpen: true });
-      
+
       const fp = fingerprint || getBrowserFingerprint();
       const actressVoted = data.votes?.actresses?.some(v => v.fingerprint === fp) || false;
       const actorVoted = data.votes?.actors?.some(v => v.fingerprint === fp) || false;
@@ -149,7 +169,7 @@ export default function RedCarpetVoting() {
       });
 
       const data = await response.json();
-      
+
       if (response.ok) {
         alert('Thank you for voting! 🌟');
         setVoterName('');
@@ -167,7 +187,7 @@ export default function RedCarpetVoting() {
   const calculateResults = (cat) => {
     const items = cat === 'actresses' ? actresses : actors;
     const categoryVotes = votes[cat] || [];
-    
+
     const itemVotes = {};
     items.forEach(item => {
       itemVotes[item] = { count: 0, voters: [], percentage: 0 };
@@ -190,6 +210,36 @@ export default function RedCarpetVoting() {
     return Object.entries(itemVotes)
       .map(([name, data]) => ({ name, ...data }))
       .sort((a, b) => b.count - a.count);
+  };
+
+  // Spinning wheel function for winner selection
+  const spinWheel = (cat) => {
+    const results = calculateResults(cat);
+
+    // Handle tiebreaker: get all top choices with the highest vote count
+    const maxCount = results[0]?.count || 0;
+    const topChoices = results.filter(r => r.count === maxCount && r.count > 0);
+
+    if (topChoices.length === 0 || topChoices[0].voters.length === 0) {
+      alert('No votes yet!');
+      return;
+    }
+
+    // If there's a tie, randomly select one of the tied choices
+    const selectedChoice = topChoices[Math.floor(Math.random() * topChoices.length)];
+
+    setIsSpinning({ ...isSpinning, [cat]: true });
+    const spins = 5 + Math.random() * 3;
+    const extraRotation = Math.random() * 360;
+    const totalRotation = spins * 360 + extraRotation;
+
+    setSpinRotation({ ...spinRotation, [cat]: totalRotation });
+
+    setTimeout(() => {
+      const randomWinner = selectedChoice.voters[Math.floor(Math.random() * selectedChoice.voters.length)];
+      setWinner({ ...winner, [cat]: randomWinner });
+      setIsSpinning({ ...isSpinning, [cat]: false });
+    }, 4000);
   };
 
   const handleAdminAction = (action) => {
@@ -226,6 +276,8 @@ export default function RedCarpetVoting() {
       if (confirm('Reset ALL votes? This cannot be undone!')) {
         try {
           await fetch('/api/votes', { method: 'DELETE' });
+          setWinner({ actresses: null, actors: null });
+          setSpinRotation({ actresses: 0, actors: 0 });
           loadData();
           setView('home');
         } catch (error) {
@@ -257,7 +309,7 @@ export default function RedCarpetVoting() {
   if (view === 'vote') {
     const items = category === 'actresses' ? actresses : actors;
     const color = category === 'actresses' ? 'yellow' : 'blue';
-    
+
     return (
       <div className={`min-h-screen bg-gradient-to-br from-${color === 'yellow' ? 'purple' : 'blue'}-900 via-${color === 'yellow' ? 'red' : 'purple'}-900 to-black text-white p-6`}>
         <div className="max-w-4xl mx-auto">
@@ -288,7 +340,7 @@ export default function RedCarpetVoting() {
                 {items.map((item) => {
                   const isSelected = selectedItems.includes(item);
                   const isFull = selectedItems.length >= 5 && !isSelected;
-                  
+
                   return (
                     <button
                       key={item}
@@ -338,8 +390,127 @@ export default function RedCarpetVoting() {
   if (view === 'dashboard') {
     const actressResults = calculateResults('actresses');
     const actorResults = calculateResults('actors');
-    const maxBubbleSize = 120;
-    
+    const maxBubbleSize = 150;
+    const minBubbleSize = 50;
+
+    // Render spinning wheel component
+    const renderSpinningWheel = (cat, results, color) => {
+      const topChoice = results[0];
+      const maxCount = results[0]?.count || 0;
+      const topChoices = results.filter(r => r.count === maxCount && r.count > 0);
+      const hasTie = topChoices.length > 1;
+
+      return (
+        <div className="mt-6 bg-gradient-to-br from-black/40 to-black/20 rounded-xl p-6 border border-yellow-500/20">
+          <h3 className={`text-2xl font-bold mb-4 text-${color}-400 flex items-center gap-2`}>
+            <SparklesIcon size={24} />
+            Winner Selection Wheel
+          </h3>
+
+          {topChoice && topChoice.count > 0 ? (
+            <div>
+              {hasTie && (
+                <div className="mb-4 p-3 bg-yellow-500/20 rounded-lg border border-yellow-500/50">
+                  <p className="text-yellow-400 text-sm font-semibold">
+                    ⚠️ TIEBREAKER: {topChoices.length} {cat === 'actresses' ? 'actresses' : 'actors'} are tied with {maxCount} votes each!
+                  </p>
+                  <p className="text-gray-300 text-xs mt-1">
+                    Tied: {topChoices.map(c => c.name).join(', ')}
+                  </p>
+                </div>
+              )}
+
+              <div className="mb-4 p-4 bg-gradient-to-r from-yellow-500/20 to-pink-500/20 rounded-lg border border-yellow-500/50">
+                <div className="text-center">
+                  <p className="text-sm text-gray-300">
+                    {hasTie ? 'Spinning from tied voters:' : `Top ${cat === 'actresses' ? 'Actress' : 'Actor'}:`}
+                  </p>
+                  {!hasTie && (
+                    <>
+                      <p className={`text-2xl font-bold text-${color}-400`}>{topChoice.name}</p>
+                      <p className="text-sm text-gray-400">{topChoice.count} votes from {topChoice.voters.length} voters</p>
+                    </>
+                  )}
+                </div>
+
+                <div className="mt-3">
+                  <p className={`text-sm font-semibold text-${color}-400 mb-2`}>
+                    {hasTie ? 'All Eligible' : ''} Voters:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {(hasTie ? topChoices.flatMap(c => c.voters) : topChoice.voters).map((voter, idx) => (
+                      <span
+                        key={idx}
+                        className={`px-3 py-1 rounded-full text-sm ${
+                          winner[cat] === voter
+                            ? 'bg-gradient-to-r from-yellow-500 to-pink-500 text-white font-bold animate-pulse'
+                            : 'bg-white/10 text-gray-300'
+                        }`}
+                      >
+                        {voter}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="relative mb-6">
+                <div className="w-64 h-64 mx-auto relative">
+                  <div
+                    className={`w-full h-full rounded-full border-8 border-${color}-500 relative bg-gradient-to-br from-purple-600 to-pink-600`}
+                    style={{
+                      transform: `rotate(${spinRotation[cat]}deg)`,
+                      transition: isSpinning[cat] ? 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)' : 'none'
+                    }}
+                  >
+                    {(hasTie ? topChoices.flatMap(c => c.voters) : topChoice.voters).map((voter, idx) => {
+                      const totalVoters = hasTie ? topChoices.reduce((sum, c) => sum + c.voters.length, 0) : topChoice.voters.length;
+                      const angle = (idx / totalVoters) * 360;
+                      return (
+                        <div
+                          key={idx}
+                          className="absolute top-1/2 left-1/2 origin-left"
+                          style={{
+                            transform: `rotate(${angle}deg) translateX(80px)`,
+                            width: '2px',
+                            height: '40px',
+                            backgroundColor: 'rgba(255,255,255,0.3)'
+                          }}
+                        />
+                      );
+                    })}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <SparklesIcon size={48} />
+                    </div>
+                  </div>
+                  <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-4">
+                    <div className={`w-0 h-0 border-l-8 border-r-8 border-t-12 border-l-transparent border-r-transparent border-t-${color}-400`} />
+                  </div>
+                </div>
+              </div>
+
+              {winner[cat] && (
+                <div className="mb-4 p-6 bg-gradient-to-r from-yellow-500 to-pink-500 rounded-xl text-center">
+                  <TrophyIcon className="mx-auto mb-2" size={48} />
+                  <p className="text-2xl font-bold">🎉 Winner: {winner[cat]} 🎉</p>
+                </div>
+              )}
+
+              <button
+                onClick={() => spinWheel(cat)}
+                disabled={isSpinning[cat]}
+                className={`w-full px-6 py-4 bg-gradient-to-r from-${color}-500 to-pink-500 hover:from-${color}-600 hover:to-pink-600 rounded-lg font-bold text-xl shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {isSpinning[cat] ? 'Spinning...' : '🎰 Spin to Select Winner'}
+              </button>
+            </div>
+          ) : (
+            <p className="text-gray-400 text-center py-8">No votes yet. Start voting to enable the wheel!</p>
+          )}
+        </div>
+      );
+    };
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-purple-900 via-indigo-900 to-black text-white p-6">
         <div className="max-w-7xl mx-auto">
@@ -373,11 +544,15 @@ export default function RedCarpetVoting() {
                   {pollStatus.actressesOpen ? '🟢 OPEN' : '🔴 CLOSED'}
                 </span>
               </h2>
-              
+
               {/* Bubble Chart */}
               <div className="mb-6 h-64 relative bg-gradient-to-br from-yellow-500/10 to-pink-500/10 rounded-xl p-4 overflow-hidden">
                 {actressResults.slice(0, 10).map((actress, idx) => {
-                  const size = Math.max(40, (actress.percentage / 100) * maxBubbleSize);
+                  // Better scaling: use square root for more dramatic size differences
+                  const maxVotes = Math.max(...actressResults.map(a => a.count), 1);
+                  const voteRatio = actress.count / maxVotes;
+                  const size = actress.count === 0 ? 0 : minBubbleSize + (voteRatio * (maxBubbleSize - minBubbleSize));
+
                   const positions = [
                     { top: '10%', left: '15%' }, { top: '15%', left: '60%' }, { top: '35%', left: '30%' },
                     { top: '25%', left: '75%' }, { top: '55%', left: '10%' }, { top: '50%', left: '50%' },
@@ -386,42 +561,53 @@ export default function RedCarpetVoting() {
                   return (
                     <div
                       key={actress.name}
-                      className="absolute rounded-full bg-gradient-to-br from-yellow-400 to-pink-500 flex items-center justify-center text-xs font-bold transition-all duration-1000 hover:scale-110 cursor-pointer"
+                      className="absolute rounded-full bg-gradient-to-br from-yellow-400 to-pink-500 flex items-center justify-center text-xs font-bold cursor-pointer shadow-lg"
                       style={{
                         width: `${size}px`,
                         height: `${size}px`,
                         top: positions[idx]?.top,
                         left: positions[idx]?.left,
-                        opacity: 0.9
+                        opacity: actress.count === 0 ? 0 : 0.9,
+                        transform: 'translate(-50%, -50%)',
+                        transition: 'width 1s ease-out, height 1s ease-out, opacity 0.5s ease-out',
+                        willChange: 'width, height, opacity'
                       }}
                       title={`${actress.name}: ${actress.count} votes`}
                     >
-                      <span className="text-center px-2">{actress.count}</span>
+                      <span className="text-center px-2 transition-all duration-300">{actress.count}</span>
                     </div>
                   );
                 })}
               </div>
 
-              {/* Top 5 List */}
-              <div className="space-y-2">
-                {actressResults.slice(0, 5).map((actress, idx) => (
-                  <div key={actress.name} className="flex items-center gap-3 bg-white/5 rounded-lg p-3 hover:bg-white/10 transition-all">
-                    <span className="text-2xl font-bold text-yellow-400">#{idx + 1}</span>
-                    <div className="flex-1">
-                      <div className="flex justify-between mb-1">
-                        <span className="font-semibold">{actress.name}</span>
-                        <span className="text-yellow-400">{actress.count} votes</span>
-                      </div>
-                      <div className="w-full bg-gray-700 rounded-full h-2">
-                        <div
-                          className="bg-gradient-to-r from-yellow-400 to-pink-500 h-2 rounded-full transition-all duration-1000"
-                          style={{ width: `${actress.percentage}%` }}
-                        />
+              {/* Full Rankings List with Scroll */}
+              <div>
+                <h3 className="text-xl font-bold mb-3 text-yellow-400">Complete Rankings</h3>
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-yellow-500 scrollbar-track-gray-800">
+                  {actressResults.map((actress, idx) => (
+                    <div key={actress.name} className="flex items-center gap-3 bg-white/5 rounded-lg p-3 hover:bg-white/10 transition-all">
+                      <span className={`text-xl font-bold ${idx < 3 ? 'text-yellow-400' : 'text-gray-400'}`}>#{idx + 1}</span>
+                      <div className="flex-1">
+                        <div className="flex justify-between mb-1">
+                          <span className="font-semibold">{actress.name}</span>
+                          <span className="text-yellow-400">{actress.count} votes</span>
+                        </div>
+                        {actress.count > 0 && (
+                          <div className="w-full bg-gray-700 rounded-full h-2">
+                            <div
+                              className="bg-gradient-to-r from-yellow-400 to-pink-500 h-2 rounded-full transition-all duration-1000"
+                              style={{ width: `${actress.percentage}%` }}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+
+              {/* Spinning Wheel for Actresses */}
+              {renderSpinningWheel('actresses', actressResults, 'yellow')}
             </div>
 
             {/* Actors */}
@@ -433,11 +619,15 @@ export default function RedCarpetVoting() {
                   {pollStatus.actorsOpen ? '🟢 OPEN' : '🔴 CLOSED'}
                 </span>
               </h2>
-              
+
               {/* Bubble Chart */}
               <div className="mb-6 h-64 relative bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-xl p-4 overflow-hidden">
                 {actorResults.slice(0, 10).map((actor, idx) => {
-                  const size = Math.max(40, (actor.percentage / 100) * maxBubbleSize);
+                  // Better scaling: use vote ratio for more dramatic size differences
+                  const maxVotes = Math.max(...actorResults.map(a => a.count), 1);
+                  const voteRatio = actor.count / maxVotes;
+                  const size = actor.count === 0 ? 0 : minBubbleSize + (voteRatio * (maxBubbleSize - minBubbleSize));
+
                   const positions = [
                     { top: '12%', left: '20%' }, { top: '18%', left: '65%' }, { top: '30%', left: '35%' },
                     { top: '28%', left: '78%' }, { top: '52%', left: '15%' }, { top: '48%', left: '55%' },
@@ -446,42 +636,53 @@ export default function RedCarpetVoting() {
                   return (
                     <div
                       key={actor.name}
-                      className="absolute rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-xs font-bold transition-all duration-1000 hover:scale-110 cursor-pointer"
+                      className="absolute rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-xs font-bold cursor-pointer shadow-lg"
                       style={{
                         width: `${size}px`,
                         height: `${size}px`,
                         top: positions[idx]?.top,
                         left: positions[idx]?.left,
-                        opacity: 0.9
+                        opacity: actor.count === 0 ? 0 : 0.9,
+                        transform: 'translate(-50%, -50%)',
+                        transition: 'width 1s ease-out, height 1s ease-out, opacity 0.5s ease-out',
+                        willChange: 'width, height, opacity'
                       }}
                       title={`${actor.name}: ${actor.count} votes`}
                     >
-                      <span className="text-center px-2">{actor.count}</span>
+                      <span className="text-center px-2 transition-all duration-300">{actor.count}</span>
                     </div>
                   );
                 })}
               </div>
 
-              {/* Top 5 List */}
-              <div className="space-y-2">
-                {actorResults.slice(0, 5).map((actor, idx) => (
-                  <div key={actor.name} className="flex items-center gap-3 bg-white/5 rounded-lg p-3 hover:bg-white/10 transition-all">
-                    <span className="text-2xl font-bold text-blue-400">#{idx + 1}</span>
-                    <div className="flex-1">
-                      <div className="flex justify-between mb-1">
-                        <span className="font-semibold">{actor.name}</span>
-                        <span className="text-blue-400">{actor.count} votes</span>
-                      </div>
-                      <div className="w-full bg-gray-700 rounded-full h-2">
-                        <div
-                          className="bg-gradient-to-r from-blue-400 to-purple-500 h-2 rounded-full transition-all duration-1000"
-                          style={{ width: `${actor.percentage}%` }}
-                        />
+              {/* Full Rankings List with Scroll */}
+              <div>
+                <h3 className="text-xl font-bold mb-3 text-blue-400">Complete Rankings</h3>
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-blue-500 scrollbar-track-gray-800">
+                  {actorResults.map((actor, idx) => (
+                    <div key={actor.name} className="flex items-center gap-3 bg-white/5 rounded-lg p-3 hover:bg-white/10 transition-all">
+                      <span className={`text-xl font-bold ${idx < 3 ? 'text-blue-400' : 'text-gray-400'}`}>#{idx + 1}</span>
+                      <div className="flex-1">
+                        <div className="flex justify-between mb-1">
+                          <span className="font-semibold">{actor.name}</span>
+                          <span className="text-blue-400">{actor.count} votes</span>
+                        </div>
+                        {actor.count > 0 && (
+                          <div className="w-full bg-gray-700 rounded-full h-2">
+                            <div
+                              className="bg-gradient-to-r from-blue-400 to-purple-500 h-2 rounded-full transition-all duration-1000"
+                              style={{ width: `${actor.percentage}%` }}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+
+              {/* Spinning Wheel for Actors */}
+              {renderSpinningWheel('actors', actorResults, 'blue')}
             </div>
           </div>
 
