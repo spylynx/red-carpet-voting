@@ -122,6 +122,9 @@ export default function RedCarpetVoting() {
   const [tiebreakers, setTiebreakers] = useState({ actresses: null, actors: null });
   const [tiebreakerChoice, setTiebreakerChoice] = useState(null);
 
+  // Bubble tooltip state for mobile
+  const [activeBubble, setActiveBubble] = useState(null);
+
   useEffect(() => {
     const fp = getBrowserFingerprint();
     setFingerprint(fp);
@@ -326,8 +329,8 @@ export default function RedCarpetVoting() {
             const allVoted = currentTiebreaker.votes.length === currentTiebreaker.eligibleFingerprints.length;
 
             if (allVoted) {
-              // Auto-resolve the tiebreaker
-              await autoResolveTiebreaker(cat);
+              // Auto-resolve the tiebreaker with fresh data
+              await autoResolveTiebreaker(cat, currentTiebreaker);
             }
           }
         }, 500);
@@ -340,8 +343,24 @@ export default function RedCarpetVoting() {
   };
 
   // Auto-resolve tiebreaker when all eligible voters have voted
-  const autoResolveTiebreaker = async (cat) => {
-    const tiebreakerResults = calculateTiebreakerResults(cat);
+  const autoResolveTiebreaker = async (cat, freshTiebreakerData) => {
+    // Calculate results from the fresh tiebreaker data passed in
+    const tiebreakerVotes = {};
+    freshTiebreakerData.tiedChoices.forEach(choice => {
+      tiebreakerVotes[choice] = { count: 0, voters: [] };
+    });
+
+    freshTiebreakerData.votes.forEach(vote => {
+      if (tiebreakerVotes[vote.selection]) {
+        tiebreakerVotes[vote.selection].count++;
+        tiebreakerVotes[vote.selection].voters.push(vote.name);
+      }
+    });
+
+    const tiebreakerResults = Object.entries(tiebreakerVotes)
+      .map(([name, data]) => ({ name, ...data }))
+      .sort((a, b) => b.count - a.count);
+
     if (!tiebreakerResults || tiebreakerResults.length === 0) {
       return;
     }
@@ -351,7 +370,7 @@ export default function RedCarpetVoting() {
 
     if (stillTied.length > 1) {
       // Still a tie, start another round automatically
-      const eligibleFingerprints = tiebreakers[cat].eligibleFingerprints;
+      const eligibleFingerprints = freshTiebreakerData.eligibleFingerprints;
 
       try {
         await fetch('/api/votes', {
@@ -365,7 +384,7 @@ export default function RedCarpetVoting() {
           }),
         });
         loadData();
-        alert(`Still tied between ${stillTied.map(tc => tc.name).join(' and ')}!\n\nStarting Round ${(tiebreakers[cat]?.round || 0) + 1}.\n\nPlease vote again to break the tie!`);
+        alert(`Still tied between ${stillTied.map(tc => tc.name).join(' and ')}!\n\nStarting Round ${freshTiebreakerData.round + 1}.\n\nPlease vote again to break the tie!`);
       } catch (error) {
         console.error('Failed to start new tiebreaker round', error);
       }
@@ -757,8 +776,8 @@ export default function RedCarpetVoting() {
   if (view === 'dashboard') {
     const actressResults = calculateResults('actresses');
     const actorResults = calculateResults('actors');
-    const maxBubbleSize = 150;
-    const minBubbleSize = 50;
+    const maxBubbleSize = 80;  // Reduced from 150
+    const minBubbleSize = 30;  // Reduced from 50
 
     // Check if user is eligible for any active tiebreaker (based on fingerprint)
     const isEligibleForActressesTiebreaker = tiebreakers.actresses?.active &&
@@ -957,33 +976,57 @@ export default function RedCarpetVoting() {
               {/* Bubble Chart */}
               <div className="mb-6 h-64 relative bg-gradient-to-br from-yellow-500/10 to-pink-500/10 rounded-xl p-4 overflow-hidden">
                 {actressResults.slice(0, 10).map((actress, idx) => {
-                  // Better scaling: use square root for more dramatic size differences
                   const maxVotes = Math.max(...actressResults.map(a => a.count), 1);
                   const voteRatio = actress.count / maxVotes;
                   const size = actress.count === 0 ? 0 : minBubbleSize + (voteRatio * (maxBubbleSize - minBubbleSize));
 
                   const positions = [
-                    { top: '10%', left: '15%' }, { top: '15%', left: '60%' }, { top: '35%', left: '30%' },
-                    { top: '25%', left: '75%' }, { top: '55%', left: '10%' }, { top: '50%', left: '50%' },
-                    { top: '60%', left: '80%' }, { top: '70%', left: '25%' }, { top: '75%', left: '65%' }, { top: '85%', left: '45%' }
+                    { top: '15%', left: '20%' }, { top: '15%', left: '65%' }, { top: '40%', left: '35%' },
+                    { top: '30%', left: '80%' }, { top: '60%', left: '15%' }, { top: '55%', left: '55%' },
+                    { top: '65%', left: '85%' }, { top: '75%', left: '30%' }, { top: '80%', left: '70%' }, { top: '90%', left: '50%' }
                   ];
+
+                  const showName = size > 50; // Show name inside if bubble is large enough
+                  const bubbleId = `actress-${idx}`;
+                  const isActive = activeBubble === bubbleId;
+
                   return (
-                    <div
-                      key={actress.name}
-                      className="absolute rounded-full bg-gradient-to-br from-yellow-400 to-pink-500 flex items-center justify-center text-xs font-bold cursor-pointer shadow-lg"
-                      style={{
-                        width: `${size}px`,
-                        height: `${size}px`,
-                        top: positions[idx]?.top,
-                        left: positions[idx]?.left,
-                        opacity: actress.count === 0 ? 0 : 0.9,
-                        transform: 'translate(-50%, -50%)',
-                        transition: 'width 1s ease-out, height 1s ease-out, opacity 0.5s ease-out',
-                        willChange: 'width, height, opacity'
-                      }}
-                      title={`${actress.name}: ${actress.count} votes`}
-                    >
-                      <span className="text-center px-2 transition-all duration-300">{actress.count}</span>
+                    <div key={actress.name}>
+                      <div
+                        className="absolute rounded-full bg-gradient-to-br from-yellow-400 to-pink-500 flex flex-col items-center justify-center text-xs font-bold cursor-pointer shadow-lg hover:scale-110"
+                        style={{
+                          width: `${size}px`,
+                          height: `${size}px`,
+                          top: positions[idx]?.top,
+                          left: positions[idx]?.left,
+                          opacity: actress.count === 0 ? 0 : 0.9,
+                          transform: isActive ? 'translate(-50%, -50%) scale(1.2)' : 'translate(-50%, -50%)',
+                          transition: 'width 1s ease-out, height 1s ease-out, opacity 0.5s ease-out, transform 0.2s ease-out',
+                          willChange: 'width, height, opacity, transform',
+                          zIndex: isActive ? 10 : 1
+                        }}
+                        onClick={() => setActiveBubble(isActive ? null : bubbleId)}
+                        onTouchStart={() => setActiveBubble(isActive ? null : bubbleId)}
+                      >
+                        <span className="text-white font-bold text-sm">{actress.count}</span>
+                        {showName && (
+                          <span className="text-white text-xs text-center px-1 leading-tight mt-0.5" style={{ fontSize: '9px' }}>
+                            {actress.name.split(' ').slice(-1)[0]}
+                          </span>
+                        )}
+                      </div>
+                      {isActive && (
+                        <div
+                          className="absolute bg-black/90 text-white px-3 py-2 rounded-lg text-sm font-semibold shadow-xl z-20 pointer-events-none"
+                          style={{
+                            top: positions[idx]?.top,
+                            left: positions[idx]?.left,
+                            transform: 'translate(-50%, -120%)'
+                          }}
+                        >
+                          {actress.name}: {actress.count} votes
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1057,33 +1100,57 @@ export default function RedCarpetVoting() {
               {/* Bubble Chart */}
               <div className="mb-6 h-64 relative bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-xl p-4 overflow-hidden">
                 {actorResults.slice(0, 10).map((actor, idx) => {
-                  // Better scaling: use vote ratio for more dramatic size differences
                   const maxVotes = Math.max(...actorResults.map(a => a.count), 1);
                   const voteRatio = actor.count / maxVotes;
                   const size = actor.count === 0 ? 0 : minBubbleSize + (voteRatio * (maxBubbleSize - minBubbleSize));
 
                   const positions = [
-                    { top: '12%', left: '20%' }, { top: '18%', left: '65%' }, { top: '30%', left: '35%' },
-                    { top: '28%', left: '78%' }, { top: '52%', left: '15%' }, { top: '48%', left: '55%' },
-                    { top: '65%', left: '75%' }, { top: '72%', left: '28%' }, { top: '78%', left: '60%' }, { top: '82%', left: '42%' }
+                    { top: '18%', left: '25%' }, { top: '20%', left: '70%' }, { top: '35%', left: '40%' },
+                    { top: '32%', left: '83%' }, { top: '57%', left: '18%' }, { top: '52%', left: '60%' },
+                    { top: '68%', left: '78%' }, { top: '76%', left: '33%' }, { top: '82%', left: '65%' }, { top: '88%', left: '47%' }
                   ];
+
+                  const showName = size > 50; // Show name inside if bubble is large enough
+                  const bubbleId = `actor-${idx}`;
+                  const isActive = activeBubble === bubbleId;
+
                   return (
-                    <div
-                      key={actor.name}
-                      className="absolute rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-xs font-bold cursor-pointer shadow-lg"
-                      style={{
-                        width: `${size}px`,
-                        height: `${size}px`,
-                        top: positions[idx]?.top,
-                        left: positions[idx]?.left,
-                        opacity: actor.count === 0 ? 0 : 0.9,
-                        transform: 'translate(-50%, -50%)',
-                        transition: 'width 1s ease-out, height 1s ease-out, opacity 0.5s ease-out',
-                        willChange: 'width, height, opacity'
-                      }}
-                      title={`${actor.name}: ${actor.count} votes`}
-                    >
-                      <span className="text-center px-2 transition-all duration-300">{actor.count}</span>
+                    <div key={actor.name}>
+                      <div
+                        className="absolute rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex flex-col items-center justify-center text-xs font-bold cursor-pointer shadow-lg hover:scale-110"
+                        style={{
+                          width: `${size}px`,
+                          height: `${size}px`,
+                          top: positions[idx]?.top,
+                          left: positions[idx]?.left,
+                          opacity: actor.count === 0 ? 0 : 0.9,
+                          transform: isActive ? 'translate(-50%, -50%) scale(1.2)' : 'translate(-50%, -50%)',
+                          transition: 'width 1s ease-out, height 1s ease-out, opacity 0.5s ease-out, transform 0.2s ease-out',
+                          willChange: 'width, height, opacity, transform',
+                          zIndex: isActive ? 10 : 1
+                        }}
+                        onClick={() => setActiveBubble(isActive ? null : bubbleId)}
+                        onTouchStart={() => setActiveBubble(isActive ? null : bubbleId)}
+                      >
+                        <span className="text-white font-bold text-sm">{actor.count}</span>
+                        {showName && (
+                          <span className="text-white text-xs text-center px-1 leading-tight mt-0.5" style={{ fontSize: '9px' }}>
+                            {actor.name.split(' ').slice(-1)[0]}
+                          </span>
+                        )}
+                      </div>
+                      {isActive && (
+                        <div
+                          className="absolute bg-black/90 text-white px-3 py-2 rounded-lg text-sm font-semibold shadow-xl z-20 pointer-events-none"
+                          style={{
+                            top: positions[idx]?.top,
+                            left: positions[idx]?.left,
+                            transform: 'translate(-50%, -120%)'
+                          }}
+                        >
+                          {actor.name}: {actor.count} votes
+                        </div>
+                      )}
                     </div>
                   );
                 })}
