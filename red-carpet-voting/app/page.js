@@ -516,8 +516,9 @@ export default function RedCarpetVoting() {
     setTimeout(async () => {
       const randomWinner = selectedChoice.voters[Math.floor(Math.random() * selectedChoice.voters.length)];
 
-      // Save winner to backend
+      // Save winner to backend and close all polls/tiebreakers
       try {
+        // Save winner
         await fetch('/api/votes', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -527,8 +528,31 @@ export default function RedCarpetVoting() {
             winner: randomWinner
           }),
         });
+
+        // Close the poll for this category
+        await fetch('/api/votes', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'togglePoll',
+            category: cat,
+            status: false
+          }),
+        });
+
+        // Close any active tiebreaker for this category
+        await fetch('/api/votes', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'resolveTiebreaker',
+            category: cat
+          }),
+        });
+
+        loadData();
       } catch (error) {
-        console.error('Failed to save winner:', error);
+        console.error('Failed to save winner and close polls:', error);
       }
 
       setWinner({ ...winner, [cat]: randomWinner });
@@ -836,7 +860,7 @@ export default function RedCarpetVoting() {
               )}
 
               <div className="mb-4 p-4 bg-gradient-to-r from-yellow-500/20 to-pink-500/20 rounded-lg border border-yellow-500/50">
-                <div className="text-center">
+                <div className="text-center mb-3">
                   <p className="text-sm text-gray-300">
                     {hasTie ? 'Spinning from tied voters:' : `Top ${cat === 'actresses' ? 'Actress' : 'Actor'}:`}
                   </p>
@@ -848,24 +872,29 @@ export default function RedCarpetVoting() {
                   )}
                 </div>
 
-                <div className="mt-3">
-                  <p className={`text-sm font-semibold text-${color}-400 mb-2`}>
-                    {hasTie ? 'All Eligible' : ''} Voters:
+                <div className="bg-black/30 rounded-lg p-3">
+                  <p className={`text-sm font-semibold text-${color}-400 mb-2 flex items-center gap-2`}>
+                    🎯 Remaining Contenders {hasTie ? '(All Eligible Voters)' : ''}:
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {(hasTie ? topChoices.flatMap(c => c.voters) : topChoice.voters).map((voter, idx) => (
                       <span
                         key={idx}
-                        className={`px-3 py-1 rounded-full text-sm ${
+                        className={`px-3 py-1 rounded-full text-sm font-semibold ${
                           winner[cat] === voter
-                            ? 'bg-gradient-to-r from-yellow-500 to-pink-500 text-white font-bold animate-pulse'
-                            : 'bg-white/10 text-gray-300'
+                            ? 'bg-gradient-to-r from-yellow-500 to-pink-500 text-white animate-pulse ring-2 ring-yellow-300'
+                            : 'bg-white/10 text-gray-300 hover:bg-white/20'
                         }`}
                       >
                         {voter}
                       </span>
                     ))}
                   </div>
+                  {!hasTie && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      These voters selected {topChoice.name}. One will be randomly chosen as the winner!
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -949,6 +978,122 @@ export default function RedCarpetVoting() {
             </div>
           </div>
 
+          {/* Event Summary Dashboard */}
+          <div className="mb-8 max-w-6xl mx-auto">
+            <div className="bg-gradient-to-br from-purple-500/20 to-indigo-500/20 backdrop-blur-lg rounded-2xl p-6 border-2 border-purple-500/50 shadow-2xl">
+              <h2 className="text-2xl font-bold text-purple-300 mb-4 flex items-center gap-2">
+                <SparklesIcon size={28} />
+                Event Summary
+              </h2>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                {/* Actresses Summary */}
+                <div className="bg-black/40 rounded-xl p-4 border border-yellow-500/30">
+                  <h3 className="text-xl font-bold text-yellow-400 mb-3 flex items-center gap-2">
+                    <TrophyIcon size={20} />
+                    Best Actress
+                  </h3>
+
+                  <div className="space-y-2 text-sm">
+                    {/* Poll Status */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-300">Main Poll:</span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${pollStatus.actressesOpen ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'}`}>
+                        {pollStatus.actressesOpen ? '🟢 OPEN' : '🔴 CLOSED'}
+                      </span>
+                    </div>
+
+                    {/* Tiebreaker Status */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-300">Tiebreaker:</span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${tiebreakers.actresses?.active ? 'bg-orange-500/30 text-orange-400' : 'bg-gray-500/30 text-gray-400'}`}>
+                        {tiebreakers.actresses?.active ? `🔥 Round ${tiebreakers.actresses.round}` : 'Inactive'}
+                      </span>
+                    </div>
+
+                    {/* Winner Status */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-300">Winner:</span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${winner.actresses ? 'bg-gradient-to-r from-yellow-500 to-pink-500 text-white' : 'bg-gray-500/30 text-gray-400'}`}>
+                        {winner.actresses ? `🎉 ${winner.actresses}` : 'Not Selected'}
+                      </span>
+                    </div>
+
+                    {/* Top Choice */}
+                    {actressResults[0] && actressResults[0].count > 0 && (
+                      <div className="mt-3 pt-3 border-t border-yellow-500/30">
+                        <p className="text-gray-400 text-xs mb-1">Top Choice:</p>
+                        <p className="text-yellow-400 font-semibold">{actressResults[0].name}</p>
+                        <p className="text-gray-400 text-xs">{actressResults[0].count} votes</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Actors Summary */}
+                <div className="bg-black/40 rounded-xl p-4 border border-blue-500/30">
+                  <h3 className="text-xl font-bold text-blue-400 mb-3 flex items-center gap-2">
+                    <TrophyIcon size={20} />
+                    Best Actor
+                  </h3>
+
+                  <div className="space-y-2 text-sm">
+                    {/* Poll Status */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-300">Main Poll:</span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${pollStatus.actorsOpen ? 'bg-green-500/30 text-green-400' : 'bg-red-500/30 text-red-400'}`}>
+                        {pollStatus.actorsOpen ? '🟢 OPEN' : '🔴 CLOSED'}
+                      </span>
+                    </div>
+
+                    {/* Tiebreaker Status */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-300">Tiebreaker:</span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${tiebreakers.actors?.active ? 'bg-cyan-500/30 text-cyan-400' : 'bg-gray-500/30 text-gray-400'}`}>
+                        {tiebreakers.actors?.active ? `🔥 Round ${tiebreakers.actors.round}` : 'Inactive'}
+                      </span>
+                    </div>
+
+                    {/* Winner Status */}
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-300">Winner:</span>
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${winner.actors ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white' : 'bg-gray-500/30 text-gray-400'}`}>
+                        {winner.actors ? `🎉 ${winner.actors}` : 'Not Selected'}
+                      </span>
+                    </div>
+
+                    {/* Top Choice */}
+                    {actorResults[0] && actorResults[0].count > 0 && (
+                      <div className="mt-3 pt-3 border-t border-blue-500/30">
+                        <p className="text-gray-400 text-xs mb-1">Top Choice:</p>
+                        <p className="text-blue-400 font-semibold">{actorResults[0].name}</p>
+                        <p className="text-gray-400 text-xs">{actorResults[0].count} votes</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Event Progress */}
+              <div className="mt-4 pt-4 border-t border-purple-500/30">
+                <div className="flex flex-wrap gap-4 justify-center text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400">Total Voters:</span>
+                    <span className="text-white font-semibold">{votes.actresses?.length || 0} actresses, {votes.actors?.length || 0} actors</span>
+                  </div>
+                  {(winner.actresses || winner.actors) && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-gray-400">Status:</span>
+                      <span className="text-green-400 font-semibold">
+                        {winner.actresses && winner.actors ? '✓ Both Winners Selected' : '⏳ In Progress'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Show eligibility message if user is eligible for tiebreaker */}
           {hasActiveTiebreaker && (isEligibleForActressesTiebreaker || isEligibleForActorsTiebreaker) && (
             <div className="mb-8 max-w-2xl mx-auto">
@@ -971,29 +1116,70 @@ export default function RedCarpetVoting() {
               </h2>
 
               {/* Tiebreaker Status */}
-              {tiebreakers.actresses?.active && (
-                <div className="mb-6 p-4 bg-orange-500/20 rounded-lg border-2 border-orange-500 animate-pulse">
-                  <p className="text-orange-400 font-bold text-lg mb-2">🔥 TIEBREAKER ROUND {tiebreakers.actresses.round} ACTIVE!</p>
-                  <p className="text-white mb-2">Tied: {tiebreakers.actresses.tiedChoices.join(', ')}</p>
-                  <p className="text-sm text-gray-300 mb-3">
-                    {tiebreakers.actresses.votes.length} / {tiebreakers.actresses.eligibleFingerprints?.length || 0} eligible voters have voted
-                  </p>
-                  <p className="text-xs text-yellow-300 mb-3">
-                    ⚡ When all eligible voters vote, the system will automatically check and start a new round if still tied, or end the tiebreaker if resolved!
-                  </p>
-                  {isEligibleForActressesTiebreaker && (
-                    <button
-                      onClick={() => {
-                        setCategory('actresses');
-                        setView('tiebreaker');
-                      }}
-                      className="w-full px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg font-semibold transition-colors"
-                    >
-                      {tiebreakers.actresses.votes.some(v => v.fingerprint === fingerprint) ? '✓ You Voted' : '→ Vote in Tiebreaker'}
-                    </button>
-                  )}
-                </div>
-              )}
+              {tiebreakers.actresses?.active && (() => {
+                // Get eligible voter names from fingerprints
+                const eligibleVoterNames = votes.actresses
+                  .filter(v => tiebreakers.actresses.eligibleFingerprints?.includes(v.fingerprint))
+                  .map(v => v.name);
+
+                // Get who has voted already
+                const votedNames = tiebreakers.actresses.votes.map(v => v.name);
+                const notVotedYet = eligibleVoterNames.filter(name => !votedNames.includes(name));
+
+                return (
+                  <div className="mb-6 p-4 bg-orange-500/20 rounded-lg border-2 border-orange-500 animate-pulse">
+                    <p className="text-orange-400 font-bold text-lg mb-2">🔥 TIEBREAKER ROUND {tiebreakers.actresses.round} ACTIVE!</p>
+                    <p className="text-white mb-2">Tied: {tiebreakers.actresses.tiedChoices.join(', ')}</p>
+                    <p className="text-sm text-gray-300 mb-2">
+                      {tiebreakers.actresses.votes.length} / {tiebreakers.actresses.eligibleFingerprints?.length || 0} eligible voters have voted
+                    </p>
+
+                    {/* Show eligible voters */}
+                    <div className="mb-3 p-3 bg-black/30 rounded-lg">
+                      <p className="text-yellow-400 text-sm font-semibold mb-1">🎯 Eligible Voters:</p>
+                      <p className="text-white text-sm">{eligibleVoterNames.join(', ')}</p>
+
+                      {votedNames.length > 0 && (
+                        <>
+                          <p className="text-green-400 text-sm font-semibold mt-2 mb-1">✓ Already Voted:</p>
+                          <p className="text-white text-sm">{votedNames.join(', ')}</p>
+                        </>
+                      )}
+
+                      {notVotedYet.length > 0 && (
+                        <>
+                          <p className="text-gray-400 text-sm font-semibold mt-2 mb-1">⏳ Waiting for:</p>
+                          <p className="text-white text-sm">{notVotedYet.join(', ')}</p>
+                        </>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-yellow-300 mb-3">
+                      ⚡ When all eligible voters vote, the system will automatically check and start a new round if still tied, or end the tiebreaker if resolved!
+                    </p>
+                    {isEligibleForActressesTiebreaker && (
+                      <button
+                        onClick={() => {
+                          setCategory('actresses');
+                          setView('tiebreaker');
+                        }}
+                        className="w-full px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg font-semibold transition-colors"
+                      >
+                        {tiebreakers.actresses.votes.some(v => v.fingerprint === fingerprint) ? '✓ You Voted' : '→ Vote in Tiebreaker'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Section Title - First Round */}
+              <div className="mb-4">
+                <h3 className="text-2xl font-bold text-yellow-400 flex items-center gap-2">
+                  <span className="text-yellow-500">📊</span>
+                  First Round of Votes
+                </h3>
+                <div className="h-0.5 bg-gradient-to-r from-yellow-500 to-transparent mt-2"></div>
+              </div>
 
               {/* Bubble Chart */}
               <div className="mb-6 h-64 relative bg-gradient-to-br from-yellow-500/10 to-pink-500/10 rounded-xl p-4 overflow-hidden">
@@ -1055,7 +1241,7 @@ export default function RedCarpetVoting() {
               </div>
 
               {/* Full Rankings List with Scroll */}
-              <div>
+              <div className="mb-6">
                 <h3 className="text-xl font-bold mb-3 text-yellow-400">Complete Rankings</h3>
                 <div className="space-y-2 max-h-96 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-yellow-500 scrollbar-track-gray-800">
                   {actressResults.map((actress, idx) => (
@@ -1080,6 +1266,111 @@ export default function RedCarpetVoting() {
                 </div>
               </div>
 
+              {/* Tiebreaker Round Visualization */}
+              {tiebreakers.actresses?.active && (() => {
+                const tiebreakerResults = calculateTiebreakerResults('actresses');
+                if (!tiebreakerResults) return null;
+
+                const maxTieVotes = Math.max(...tiebreakerResults.map(r => r.count), 1);
+
+                return (
+                  <div className="mb-6">
+                    {/* Section Title - Tiebreaker Round */}
+                    <div className="mb-4">
+                      <h3 className="text-2xl font-bold text-orange-400 flex items-center gap-2">
+                        <span className="text-orange-500">🔥</span>
+                        Tiebreaker Round {tiebreakers.actresses.round}
+                      </h3>
+                      <div className="h-0.5 bg-gradient-to-r from-orange-500 to-transparent mt-2"></div>
+                    </div>
+
+                    {/* Tiebreaker Bubble Chart */}
+                    <div className="mb-4 h-48 relative bg-gradient-to-br from-orange-500/10 to-pink-500/10 rounded-xl p-4 overflow-hidden border-2 border-orange-500/30">
+                      {tiebreakerResults.map((result, idx) => {
+                        const voteRatio = result.count / maxTieVotes;
+                        const size = result.count === 0 ? 0 : 40 + (voteRatio * 60); // 40-100px
+
+                        const positions = [
+                          { top: '30%', left: '25%' },
+                          { top: '30%', left: '55%' },
+                          { top: '30%', left: '85%' },
+                          { top: '70%', left: '25%' },
+                          { top: '70%', left: '55%' },
+                          { top: '70%', left: '85%' }
+                        ];
+
+                        const bubbleId = `actress-tie-${idx}`;
+                        const isActive = activeBubble === bubbleId;
+
+                        return (
+                          <div key={result.name}>
+                            <div
+                              className="absolute rounded-full bg-gradient-to-br from-orange-400 to-red-500 flex flex-col items-center justify-center text-xs font-bold cursor-pointer shadow-lg hover:scale-110"
+                              style={{
+                                width: `${size}px`,
+                                height: `${size}px`,
+                                top: positions[idx]?.top || '50%',
+                                left: positions[idx]?.left || '50%',
+                                opacity: result.count === 0 ? 0 : 0.95,
+                                transform: isActive ? 'translate(-50%, -50%) scale(1.2)' : 'translate(-50%, -50%)',
+                                transition: 'width 1s ease-out, height 1s ease-out, opacity 0.5s ease-out, transform 0.2s ease-out',
+                                willChange: 'width, height, opacity, transform',
+                                zIndex: isActive ? 10 : 1
+                              }}
+                              onClick={() => setActiveBubble(isActive ? null : bubbleId)}
+                              onTouchStart={() => setActiveBubble(isActive ? null : bubbleId)}
+                            >
+                              <span className="text-white font-bold text-lg">{result.count}</span>
+                              <span className="text-white text-xs text-center px-1 leading-tight mt-0.5" style={{ fontSize: '9px' }}>
+                                {result.name.split(' ').slice(-1)[0]}
+                              </span>
+                            </div>
+                            {isActive && (
+                              <div
+                                className="absolute bg-black/90 text-white px-3 py-2 rounded-lg text-sm font-semibold shadow-xl z-20 pointer-events-none"
+                                style={{
+                                  top: positions[idx]?.top || '50%',
+                                  left: positions[idx]?.left || '50%',
+                                  transform: 'translate(-50%, -120%)'
+                                }}
+                              >
+                                {result.name}: {result.count} votes
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Tiebreaker Rankings */}
+                    <div>
+                      <h4 className="text-lg font-bold mb-2 text-orange-400">Tiebreaker Results</h4>
+                      <div className="space-y-2">
+                        {tiebreakerResults.map((result, idx) => (
+                          <div key={result.name} className="flex items-center gap-3 bg-orange-500/10 rounded-lg p-3 border border-orange-500/30">
+                            <span className="text-xl font-bold text-orange-400">#{idx + 1}</span>
+                            <div className="flex-1">
+                              <div className="flex justify-between mb-1">
+                                <span className="font-semibold">{result.name}</span>
+                                <span className="text-orange-400">{result.count} votes</span>
+                              </div>
+                              {result.count > 0 && (
+                                <div className="w-full bg-gray-700 rounded-full h-2">
+                                  <div
+                                    className="bg-gradient-to-r from-orange-400 to-red-500 h-2 rounded-full transition-all duration-1000"
+                                    style={{ width: `${(result.count / maxTieVotes) * 100}%` }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Spinning Wheel for Actresses */}
               {renderSpinningWheel('actresses', actressResults, 'yellow')}
             </div>
@@ -1095,29 +1386,70 @@ export default function RedCarpetVoting() {
               </h2>
 
               {/* Tiebreaker Status */}
-              {tiebreakers.actors?.active && (
-                <div className="mb-6 p-4 bg-cyan-500/20 rounded-lg border-2 border-cyan-500 animate-pulse">
-                  <p className="text-cyan-400 font-bold text-lg mb-2">🔥 TIEBREAKER ROUND {tiebreakers.actors.round} ACTIVE!</p>
-                  <p className="text-white mb-2">Tied: {tiebreakers.actors.tiedChoices.join(', ')}</p>
-                  <p className="text-sm text-gray-300 mb-3">
-                    {tiebreakers.actors.votes.length} / {tiebreakers.actors.eligibleFingerprints?.length || 0} eligible voters have voted
-                  </p>
-                  <p className="text-xs text-cyan-300 mb-3">
-                    ⚡ When all eligible voters vote, the system will automatically check and start a new round if still tied, or end the tiebreaker if resolved!
-                  </p>
-                  {isEligibleForActorsTiebreaker && (
-                    <button
-                      onClick={() => {
-                        setCategory('actors');
-                        setView('tiebreaker');
-                      }}
-                      className="w-full px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg font-semibold transition-colors"
-                    >
-                      {tiebreakers.actors.votes.some(v => v.fingerprint === fingerprint) ? '✓ You Voted' : '→ Vote in Tiebreaker'}
-                    </button>
-                  )}
-                </div>
-              )}
+              {tiebreakers.actors?.active && (() => {
+                // Get eligible voter names from fingerprints
+                const eligibleVoterNames = votes.actors
+                  .filter(v => tiebreakers.actors.eligibleFingerprints?.includes(v.fingerprint))
+                  .map(v => v.name);
+
+                // Get who has voted already
+                const votedNames = tiebreakers.actors.votes.map(v => v.name);
+                const notVotedYet = eligibleVoterNames.filter(name => !votedNames.includes(name));
+
+                return (
+                  <div className="mb-6 p-4 bg-cyan-500/20 rounded-lg border-2 border-cyan-500 animate-pulse">
+                    <p className="text-cyan-400 font-bold text-lg mb-2">🔥 TIEBREAKER ROUND {tiebreakers.actors.round} ACTIVE!</p>
+                    <p className="text-white mb-2">Tied: {tiebreakers.actors.tiedChoices.join(', ')}</p>
+                    <p className="text-sm text-gray-300 mb-2">
+                      {tiebreakers.actors.votes.length} / {tiebreakers.actors.eligibleFingerprints?.length || 0} eligible voters have voted
+                    </p>
+
+                    {/* Show eligible voters */}
+                    <div className="mb-3 p-3 bg-black/30 rounded-lg">
+                      <p className="text-cyan-400 text-sm font-semibold mb-1">🎯 Eligible Voters:</p>
+                      <p className="text-white text-sm">{eligibleVoterNames.join(', ')}</p>
+
+                      {votedNames.length > 0 && (
+                        <>
+                          <p className="text-green-400 text-sm font-semibold mt-2 mb-1">✓ Already Voted:</p>
+                          <p className="text-white text-sm">{votedNames.join(', ')}</p>
+                        </>
+                      )}
+
+                      {notVotedYet.length > 0 && (
+                        <>
+                          <p className="text-gray-400 text-sm font-semibold mt-2 mb-1">⏳ Waiting for:</p>
+                          <p className="text-white text-sm">{notVotedYet.join(', ')}</p>
+                        </>
+                      )}
+                    </div>
+
+                    <p className="text-xs text-cyan-300 mb-3">
+                      ⚡ When all eligible voters vote, the system will automatically check and start a new round if still tied, or end the tiebreaker if resolved!
+                    </p>
+                    {isEligibleForActorsTiebreaker && (
+                      <button
+                        onClick={() => {
+                          setCategory('actors');
+                          setView('tiebreaker');
+                        }}
+                        className="w-full px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg font-semibold transition-colors"
+                      >
+                        {tiebreakers.actors.votes.some(v => v.fingerprint === fingerprint) ? '✓ You Voted' : '→ Vote in Tiebreaker'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Section Title - First Round */}
+              <div className="mb-4">
+                <h3 className="text-2xl font-bold text-blue-400 flex items-center gap-2">
+                  <span className="text-blue-500">📊</span>
+                  First Round of Votes
+                </h3>
+                <div className="h-0.5 bg-gradient-to-r from-blue-500 to-transparent mt-2"></div>
+              </div>
 
               {/* Bubble Chart */}
               <div className="mb-6 h-64 relative bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-xl p-4 overflow-hidden">
@@ -1203,6 +1535,116 @@ export default function RedCarpetVoting() {
                   ))}
                 </div>
               </div>
+
+              {/* Tiebreaker Round Visualization */}
+              {tiebreakers.actors?.active && (() => {
+                const tiebreakerResults = calculateTiebreakerResults('actors');
+                if (!tiebreakerResults) return null;
+
+                const maxTieVotes = Math.max(...tiebreakerResults.map(r => r.count), 1);
+
+                return (
+                  <div className="mb-6">
+                    {/* Section Title - Tiebreaker Round */}
+                    <div className="mb-4">
+                      <h3 className="text-2xl font-bold text-cyan-400 flex items-center gap-2">
+                        <span className="text-cyan-500">🔥</span>
+                        Tiebreaker Round {tiebreakers.actors.round}
+                      </h3>
+                      <div className="h-0.5 bg-gradient-to-r from-cyan-500 to-transparent mt-2"></div>
+                    </div>
+
+                    {/* Tiebreaker Bubble Chart */}
+                    <div className="mb-4 h-48 relative bg-gradient-to-br from-cyan-500/10 to-blue-500/10 rounded-xl p-4 overflow-hidden border-2 border-cyan-500/30">
+                      {tiebreakerResults.map((result, idx) => {
+                        const voteRatio = result.count / maxTieVotes;
+                        const size = result.count === 0 ? 0 : 40 + (voteRatio * 60); // 40-100px
+
+                        const positions = [
+                          { top: '20%', left: '30%' }, { top: '25%', left: '65%' }, { top: '45%', left: '45%' },
+                          { top: '40%', left: '80%' }, { top: '65%', left: '25%' }, { top: '60%', left: '70%' },
+                          { top: '75%', left: '55%' }, { top: '80%', left: '15%' }
+                        ];
+
+                        const showName = size > 60;
+                        const bubbleId = `actor-tie-${idx}`;
+                        const isActive = activeBubble === bubbleId;
+
+                        return (
+                          <div key={result.name}>
+                            <div
+                              className="absolute rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 flex flex-col items-center justify-center text-xs font-bold cursor-pointer shadow-lg hover:scale-110"
+                              style={{
+                                width: `${size}px`,
+                                height: `${size}px`,
+                                top: positions[idx]?.top,
+                                left: positions[idx]?.left,
+                                opacity: result.count === 0 ? 0 : 0.9,
+                                transform: isActive ? 'translate(-50%, -50%) scale(1.2)' : 'translate(-50%, -50%)',
+                                transition: 'width 1s ease-out, height 1s ease-out, opacity 0.5s ease-out, transform 0.2s ease-out',
+                                willChange: 'width, height, opacity, transform',
+                                zIndex: isActive ? 10 : 1
+                              }}
+                              onClick={() => setActiveBubble(isActive ? null : bubbleId)}
+                              onTouchStart={() => setActiveBubble(isActive ? null : bubbleId)}
+                            >
+                              <span className="text-white font-bold text-sm">{result.count}</span>
+                              {showName && (
+                                <span className="text-white text-xs text-center px-1 leading-tight mt-0.5" style={{ fontSize: '9px' }}>
+                                  {result.name.split(' ').slice(-1)[0]}
+                                </span>
+                              )}
+                            </div>
+                            {isActive && (
+                              <div
+                                className="absolute bg-black/90 text-white px-3 py-2 rounded-lg text-sm font-semibold shadow-xl z-20 pointer-events-none"
+                                style={{
+                                  top: positions[idx]?.top,
+                                  left: positions[idx]?.left,
+                                  transform: 'translate(-50%, -120%)'
+                                }}
+                              >
+                                {result.name}: {result.count} votes
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Tiebreaker Rankings */}
+                    <div>
+                      <h4 className="text-lg font-bold mb-2 text-cyan-400">Tiebreaker Results</h4>
+                      <div className="space-y-2">
+                        {tiebreakerResults.map((result, idx) => (
+                          <div key={result.name} className="flex items-center gap-3 bg-cyan-500/10 rounded-lg p-3 border border-cyan-500/30">
+                            <span className="text-xl font-bold text-cyan-400">#{idx + 1}</span>
+                            <div className="flex-1">
+                              <div className="flex justify-between mb-1">
+                                <span className="font-semibold">{result.name}</span>
+                                <span className="text-cyan-400">{result.count} votes</span>
+                              </div>
+                              {result.count > 0 && (
+                                <div className="w-full bg-gray-700 rounded-full h-2">
+                                  <div
+                                    className="bg-gradient-to-r from-cyan-400 to-blue-500 h-2 rounded-full transition-all duration-1000"
+                                    style={{ width: `${(result.count / maxTieVotes) * 100}%` }}
+                                  />
+                                </div>
+                              )}
+                            </div>
+                            {result.voters.length > 0 && (
+                              <div className="text-xs text-gray-400">
+                                ({result.voters.join(', ')})
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Spinning Wheel for Actors */}
               {renderSpinningWheel('actors', actorResults, 'blue')}
