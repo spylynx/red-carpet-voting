@@ -344,6 +344,12 @@ export default function RedCarpetVoting() {
 
   // Auto-resolve tiebreaker when all eligible voters have voted
   const autoResolveTiebreaker = async (cat, freshTiebreakerData) => {
+    // Defensive checks
+    if (!freshTiebreakerData || !freshTiebreakerData.votes || !freshTiebreakerData.tiedChoices) {
+      console.error('Invalid tiebreaker data:', freshTiebreakerData);
+      return;
+    }
+
     // Calculate results from the fresh tiebreaker data passed in
     const tiebreakerVotes = {};
     freshTiebreakerData.tiedChoices.forEach(choice => {
@@ -361,12 +367,28 @@ export default function RedCarpetVoting() {
       .map(([name, data]) => ({ name, ...data }))
       .sort((a, b) => b.count - a.count);
 
+    // Debug logging
+    console.log('Tiebreaker Results:', tiebreakerResults);
+    console.log('Fresh Tiebreaker Data:', freshTiebreakerData);
+
     if (!tiebreakerResults || tiebreakerResults.length === 0) {
+      console.error('No tiebreaker results calculated');
+      return;
+    }
+
+    // Check if anyone actually voted
+    const totalVotes = tiebreakerResults.reduce((sum, r) => sum + r.count, 0);
+    if (totalVotes === 0) {
+      console.error('No votes cast in tiebreaker');
+      alert('Error: No votes were cast in this tiebreaker round. Please try again.');
       return;
     }
 
     const maxCount = tiebreakerResults[0].count;
+    // Filter for tied choices that have votes > 0
     const stillTied = tiebreakerResults.filter(r => r.count === maxCount && r.count > 0);
+
+    console.log('Max count:', maxCount, 'Still tied:', stillTied);
 
     if (stillTied.length > 1) {
       // Still a tie, start another round automatically
