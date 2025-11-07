@@ -1,27 +1,149 @@
 import { NextResponse } from 'next/server';
+import { kv } from '@vercel/kv';
 
-// In-memory storage
-let votes = {
+// KV Storage keys
+const VOTES_KEY = 'red-carpet:votes';
+const POLL_STATUS_KEY = 'red-carpet:pollStatus';
+const TIEBREAKERS_KEY = 'red-carpet:tiebreakers';
+const WINNERS_KEY = 'red-carpet:winners';
+
+// Fallback in-memory storage for development (when KV is not configured)
+let memoryVotes = {
   actresses: [],
   actors: []
 };
 
-let pollStatus = {
+let memoryPollStatus = {
   actressesOpen: true,
   actorsOpen: true
 };
 
-// Tiebreaker storage
-let tiebreakers = {
+let memoryTiebreakers = {
   actresses: { active: false, round: 0, votes: [], tiedChoices: [], eligibleFingerprints: [] },
   actors: { active: false, round: 0, votes: [], tiedChoices: [], eligibleFingerprints: [] }
 };
 
+let memoryWinners = {
+  actresses: null,
+  actors: null
+};
+
+// Check if KV is configured
+const isKVConfigured = () => {
+  return process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN;
+};
+
+// Helper functions for persistent storage
+async function getVotes() {
+  if (isKVConfigured()) {
+    try {
+      const data = await kv.get(VOTES_KEY);
+      return data || { actresses: [], actors: [] };
+    } catch (error) {
+      console.error('KV get votes error:', error);
+      return memoryVotes;
+    }
+  }
+  return memoryVotes;
+}
+
+async function setVotes(votes) {
+  if (isKVConfigured()) {
+    try {
+      await kv.set(VOTES_KEY, votes);
+    } catch (error) {
+      console.error('KV set votes error:', error);
+    }
+  }
+  memoryVotes = votes;
+}
+
+async function getPollStatus() {
+  if (isKVConfigured()) {
+    try {
+      const data = await kv.get(POLL_STATUS_KEY);
+      return data || { actressesOpen: true, actorsOpen: true };
+    } catch (error) {
+      console.error('KV get poll status error:', error);
+      return memoryPollStatus;
+    }
+  }
+  return memoryPollStatus;
+}
+
+async function setPollStatus(status) {
+  if (isKVConfigured()) {
+    try {
+      await kv.set(POLL_STATUS_KEY, status);
+    } catch (error) {
+      console.error('KV set poll status error:', error);
+    }
+  }
+  memoryPollStatus = status;
+}
+
+async function getTiebreakers() {
+  if (isKVConfigured()) {
+    try {
+      const data = await kv.get(TIEBREAKERS_KEY);
+      return data || {
+        actresses: { active: false, round: 0, votes: [], tiedChoices: [], eligibleFingerprints: [] },
+        actors: { active: false, round: 0, votes: [], tiedChoices: [], eligibleFingerprints: [] }
+      };
+    } catch (error) {
+      console.error('KV get tiebreakers error:', error);
+      return memoryTiebreakers;
+    }
+  }
+  return memoryTiebreakers;
+}
+
+async function setTiebreakers(tiebreakers) {
+  if (isKVConfigured()) {
+    try {
+      await kv.set(TIEBREAKERS_KEY, tiebreakers);
+    } catch (error) {
+      console.error('KV set tiebreakers error:', error);
+    }
+  }
+  memoryTiebreakers = tiebreakers;
+}
+
+async function getWinners() {
+  if (isKVConfigured()) {
+    try {
+      const data = await kv.get(WINNERS_KEY);
+      return data || { actresses: null, actors: null };
+    } catch (error) {
+      console.error('KV get winners error:', error);
+      return memoryWinners;
+    }
+  }
+  return memoryWinners;
+}
+
+async function setWinners(winners) {
+  if (isKVConfigured()) {
+    try {
+      await kv.set(WINNERS_KEY, winners);
+    } catch (error) {
+      console.error('KV set winners error:', error);
+    }
+  }
+  memoryWinners = winners;
+}
+
 export async function GET() {
+  const votes = await getVotes();
+  const pollStatus = await getPollStatus();
+  const tiebreakers = await getTiebreakers();
+  const winners = await getWinners();
+
   return NextResponse.json({
     votes,
     pollStatus,
-    tiebreakers
+    tiebreakers,
+    winners
   });
 }
 
@@ -46,6 +168,7 @@ export async function POST(request) {
 
     // Handle tiebreaker vote
     if (isTiebreaker) {
+      const tiebreakers = await getTiebreakers();
       const tiebreaker = tiebreakers[category];
 
       if (!tiebreaker.active) {
@@ -95,10 +218,15 @@ export async function POST(request) {
         timestamp: new Date().toISOString()
       });
 
+      await setTiebreakers(tiebreakers);
+
       return NextResponse.json({ success: true, isTiebreaker: true });
     }
 
     // Regular vote handling
+    const pollStatus = await getPollStatus();
+    const votes = await getVotes();
+
     if (!pollStatus[`${category}Open`]) {
       return NextResponse.json(
         { error: 'This poll is currently closed' },
@@ -138,9 +266,11 @@ export async function POST(request) {
     };
 
     votes[category].push(newVote);
+    await setVotes(votes);
 
     return NextResponse.json({ success: true, vote: newVote });
   } catch (error) {
+    console.error('POST error:', error);
     return NextResponse.json(
       { error: 'Failed to process vote' },
       { status: 500 }
@@ -161,7 +291,9 @@ export async function PUT(request) {
         );
       }
 
+      const pollStatus = await getPollStatus();
       pollStatus[`${category}Open`] = status;
+      await setPollStatus(pollStatus);
 
       return NextResponse.json({
         success: true,
@@ -177,6 +309,7 @@ export async function PUT(request) {
         );
       }
 
+      const tiebreakers = await getTiebreakers();
       tiebreakers[category] = {
         active: true,
         round: (tiebreakers[category]?.round || 0) + 1,
@@ -184,6 +317,7 @@ export async function PUT(request) {
         tiedChoices: tiedChoices || [],
         eligibleFingerprints: eligibleFingerprints || []
       };
+      await setTiebreakers(tiebreakers);
 
       return NextResponse.json({
         success: true,
@@ -199,6 +333,7 @@ export async function PUT(request) {
         );
       }
 
+      const tiebreakers = await getTiebreakers();
       tiebreakers[category] = {
         active: false,
         round: tiebreakers[category]?.round || 0,
@@ -206,9 +341,37 @@ export async function PUT(request) {
         tiedChoices: [],
         eligibleFingerprints: []
       };
+      await setTiebreakers(tiebreakers);
 
       return NextResponse.json({
         success: true
+      });
+    }
+
+    if (action === 'setWinner') {
+      const { winner } = body;
+
+      if (!['actresses', 'actors'].includes(category)) {
+        return NextResponse.json(
+          { error: 'Invalid category' },
+          { status: 400 }
+        );
+      }
+
+      if (!winner) {
+        return NextResponse.json(
+          { error: 'Winner is required' },
+          { status: 400 }
+        );
+      }
+
+      const winners = await getWinners();
+      winners[category] = winner;
+      await setWinners(winners);
+
+      return NextResponse.json({
+        success: true,
+        winners
       });
     }
 
@@ -217,6 +380,7 @@ export async function PUT(request) {
       { status: 400 }
     );
   } catch (error) {
+    console.error('PUT error:', error);
     return NextResponse.json(
       { error: 'Failed to process request' },
       { status: 500 }
@@ -225,17 +389,27 @@ export async function PUT(request) {
 }
 
 export async function DELETE() {
-  votes = {
+  const votes = {
     actresses: [],
     actors: []
   };
-  pollStatus = {
+  const pollStatus = {
     actressesOpen: true,
     actorsOpen: true
   };
-  tiebreakers = {
+  const tiebreakers = {
     actresses: { active: false, round: 0, votes: [], tiedChoices: [], eligibleFingerprints: [] },
     actors: { active: false, round: 0, votes: [], tiedChoices: [], eligibleFingerprints: [] }
   };
+  const winners = {
+    actresses: null,
+    actors: null
+  };
+
+  await setVotes(votes);
+  await setPollStatus(pollStatus);
+  await setTiebreakers(tiebreakers);
+  await setWinners(winners);
+
   return NextResponse.json({ success: true });
 }
