@@ -304,12 +304,77 @@ export default function RedCarpetVoting() {
       if (response.ok) {
         alert('Tiebreaker vote submitted! 🌟');
         setTiebreakerChoice(null);
-        loadData();
+        await loadData();
+
+        // Check if all eligible voters have voted, and auto-resolve if so
+        setTimeout(async () => {
+          const latestResponse = await fetch('/api/votes');
+          const latestData = await latestResponse.json();
+          const currentTiebreaker = latestData.tiebreakers?.[cat];
+
+          if (currentTiebreaker && currentTiebreaker.active) {
+            const allVoted = currentTiebreaker.votes.length === currentTiebreaker.eligibleVoters.length;
+
+            if (allVoted) {
+              // Auto-resolve the tiebreaker
+              await autoResolveTiebreaker(cat);
+            }
+          }
+        }, 500);
       } else {
         alert(data.error || 'Failed to submit tiebreaker vote');
       }
     } catch (error) {
       alert('Failed to submit tiebreaker vote. Please try again.');
+    }
+  };
+
+  // Auto-resolve tiebreaker when all eligible voters have voted
+  const autoResolveTiebreaker = async (cat) => {
+    const tiebreakerResults = calculateTiebreakerResults(cat);
+    if (!tiebreakerResults || tiebreakerResults.length === 0) {
+      return;
+    }
+
+    const maxCount = tiebreakerResults[0].count;
+    const stillTied = tiebreakerResults.filter(r => r.count === maxCount && r.count > 0);
+
+    if (stillTied.length > 1) {
+      // Still a tie, start another round automatically
+      const eligibleVoters = tiebreakers[cat].eligibleVoters;
+
+      try {
+        await fetch('/api/votes', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'startTiebreaker',
+            category: cat,
+            tiedChoices: stillTied.map(tc => tc.name),
+            eligibleVoters
+          }),
+        });
+        loadData();
+        alert(`Still tied between ${stillTied.map(tc => tc.name).join(' and ')}!\n\nStarting Round ${(tiebreakers[cat]?.round || 0) + 1}.\n\nPlease vote again to break the tie!`);
+      } catch (error) {
+        console.error('Failed to start new tiebreaker round', error);
+      }
+    } else {
+      // We have a winner! End the tiebreaker
+      try {
+        await fetch('/api/votes', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'resolveTiebreaker',
+            category: cat
+          }),
+        });
+        loadData();
+        alert(`🎉 Tiebreaker resolved!\n\nWinner: ${tiebreakerResults[0].name}\n\nYou can now spin the wheel to select the prize winner!`);
+      } catch (error) {
+        console.error('Failed to resolve tiebreaker', error);
+      }
     }
   };
 
@@ -827,6 +892,9 @@ export default function RedCarpetVoting() {
                   <p className="text-sm text-gray-300 mb-3">
                     {tiebreakers.actresses.votes.length} / {tiebreakers.actresses.eligibleVoters.length} eligible voters have voted
                   </p>
+                  <p className="text-xs text-yellow-300 mb-3">
+                    ⚡ When all eligible voters vote, the system will automatically check and start a new round if still tied, or end the tiebreaker if resolved!
+                  </p>
                   {tiebreakers.actresses.eligibleVoters.includes(voterName) && (
                     <button
                       onClick={() => {
@@ -923,6 +991,9 @@ export default function RedCarpetVoting() {
                   <p className="text-white mb-2">Tied: {tiebreakers.actors.tiedChoices.join(', ')}</p>
                   <p className="text-sm text-gray-300 mb-3">
                     {tiebreakers.actors.votes.length} / {tiebreakers.actors.eligibleVoters.length} eligible voters have voted
+                  </p>
+                  <p className="text-xs text-cyan-300 mb-3">
+                    ⚡ When all eligible voters vote, the system will automatically check and start a new round if still tied, or end the tiebreaker if resolved!
                   </p>
                   {tiebreakers.actors.eligibleVoters.includes(voterName) && (
                     <button
