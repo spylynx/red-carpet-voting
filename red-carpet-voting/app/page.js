@@ -144,6 +144,7 @@ export default function RedCarpetVoting() {
       setVotes(data.votes || { actresses: [], actors: [] });
       setPollStatus(data.pollStatus || { actressesOpen: true, actorsOpen: true });
       setTiebreakers(data.tiebreakers || { actresses: null, actors: null });
+      setWinner(data.winners || { actresses: null, actors: null });
 
       const fp = fingerprint || getBrowserFingerprint();
       const actressVoted = data.votes?.actresses?.some(v => v.fingerprint === fp) || false;
@@ -437,8 +438,8 @@ export default function RedCarpetVoting() {
     }
   };
 
-  // Spinning wheel function for winner selection
-  const spinWheel = (cat) => {
+  // Spinning wheel function for winner selection (admin only)
+  const spinWheel = async (cat) => {
     // Check if there's an active tiebreaker
     if (tiebreakers[cat]?.active) {
       alert('Please resolve the tiebreaker first!');
@@ -471,8 +472,24 @@ export default function RedCarpetVoting() {
 
     setSpinRotation({ ...spinRotation, [cat]: totalRotation });
 
-    setTimeout(() => {
+    setTimeout(async () => {
       const randomWinner = selectedChoice.voters[Math.floor(Math.random() * selectedChoice.voters.length)];
+
+      // Save winner to backend
+      try {
+        await fetch('/api/votes', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'setWinner',
+            category: cat,
+            winner: randomWinner
+          }),
+        });
+      } catch (error) {
+        console.error('Failed to save winner:', error);
+      }
+
       setWinner({ ...winner, [cat]: randomWinner });
       setIsSpinning({ ...isSpinning, [cat]: false });
     }, 4000);
@@ -512,6 +529,8 @@ export default function RedCarpetVoting() {
       await startTiebreaker(pinAction.category);
     } else if (pinAction?.type === 'resolveTiebreaker') {
       await resolveTiebreaker(pinAction.category);
+    } else if (pinAction?.type === 'spinWheel') {
+      await spinWheel(pinAction.category);
     } else if (pinAction?.type === 'reset') {
       if (confirm('Reset ALL votes? This cannot be undone!')) {
         try {
@@ -852,11 +871,11 @@ export default function RedCarpetVoting() {
               )}
 
               <button
-                onClick={() => spinWheel(cat)}
+                onClick={() => handleAdminAction({ type: 'spinWheel', category: cat })}
                 disabled={isSpinning[cat]}
                 className={`w-full px-6 py-4 bg-gradient-to-r from-${color}-500 to-pink-500 hover:from-${color}-600 hover:to-pink-600 rounded-lg font-bold text-xl shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                {isSpinning[cat] ? 'Spinning...' : '🎰 Spin to Select Winner'}
+                {isSpinning[cat] ? 'Spinning...' : '🎰 Spin to Select Winner (Admin)'}
               </button>
             </div>
           ) : (
