@@ -233,7 +233,7 @@ export default function RedCarpetVoting() {
   // Calculate tiebreaker results
   const calculateTiebreakerResults = (cat) => {
     const tiebreaker = tiebreakers[cat];
-    if (!tiebreaker || !tiebreaker.active) return null;
+    if (!tiebreaker) return null;
 
     const tiebreakerVotes = {};
     tiebreaker.tiedChoices.forEach(choice => {
@@ -487,24 +487,56 @@ export default function RedCarpetVoting() {
       return;
     }
 
-    const results = calculateResults(cat);
+    // Check if a tiebreaker was resolved - use tiebreaker results if so
+    let results;
+    let selectedChoice;
 
-    // Check if there's still a tie at the top
-    const maxCount = results[0]?.count || 0;
-    const topChoices = results.filter(r => r.count === maxCount && r.count > 0);
+    if (tiebreakers[cat] && tiebreakers[cat].votes && tiebreakers[cat].votes.length > 0) {
+      // Tiebreaker was completed, use tiebreaker results
+      const tiebreakerResults = calculateTiebreakerResults(cat);
 
-    if (topChoices.length === 0 || topChoices[0].voters.length === 0) {
-      alert('No votes yet!');
-      return;
+      if (!tiebreakerResults || tiebreakerResults.length === 0) {
+        alert('No tiebreaker votes found!');
+        return;
+      }
+
+      // Get the actress/actor with the most tiebreaker votes
+      const maxTieVotes = tiebreakerResults[0].count;
+      const topTiebreakerChoices = tiebreakerResults.filter(r => r.count === maxTieVotes && r.count > 0);
+
+      if (topTiebreakerChoices.length === 0 || topTiebreakerChoices[0].voters.length === 0) {
+        alert('No tiebreaker votes yet!');
+        return;
+      }
+
+      if (topTiebreakerChoices.length > 1) {
+        alert(`Still tied in tiebreaker! Please resolve the tie first.`);
+        return;
+      }
+
+      // We have a tiebreaker winner
+      selectedChoice = topTiebreakerChoices[0];
+    } else {
+      // No tiebreaker, use main round results
+      results = calculateResults(cat);
+
+      // Check if there's still a tie at the top
+      const maxCount = results[0]?.count || 0;
+      const topChoices = results.filter(r => r.count === maxCount && r.count > 0);
+
+      if (topChoices.length === 0 || topChoices[0].voters.length === 0) {
+        alert('No votes yet!');
+        return;
+      }
+
+      if (topChoices.length > 1) {
+        alert(`There's a tie! Please start a tiebreaker round first.`);
+        return;
+      }
+
+      // We have a clear winner from main round
+      selectedChoice = topChoices[0];
     }
-
-    if (topChoices.length > 1) {
-      alert(`There's a tie! Please start a tiebreaker round first.`);
-      return;
-    }
-
-    // We have a clear winner
-    const selectedChoice = topChoices[0];
 
     setIsSpinning({ ...isSpinning, [cat]: true });
     const spins = 5 + Math.random() * 3;
@@ -834,9 +866,21 @@ export default function RedCarpetVoting() {
 
     // Render spinning wheel component
     const renderSpinningWheel = (cat, results, color) => {
-      const topChoice = results[0];
-      const maxCount = results[0]?.count || 0;
-      const topChoices = results.filter(r => r.count === maxCount && r.count > 0);
+      // If a tiebreaker was resolved, use tiebreaker results instead
+      let displayResults = results;
+      let fromTiebreaker = false;
+
+      if (tiebreakers[cat] && tiebreakers[cat].votes && tiebreakers[cat].votes.length > 0) {
+        const tiebreakerResults = calculateTiebreakerResults(cat);
+        if (tiebreakerResults && tiebreakerResults.length > 0) {
+          displayResults = tiebreakerResults;
+          fromTiebreaker = true;
+        }
+      }
+
+      const topChoice = displayResults[0];
+      const maxCount = displayResults[0]?.count || 0;
+      const topChoices = displayResults.filter(r => r.count === maxCount && r.count > 0);
       const hasTie = topChoices.length > 1;
 
       return (
@@ -862,12 +906,14 @@ export default function RedCarpetVoting() {
               <div className="mb-4 p-4 bg-gradient-to-r from-yellow-500/20 to-pink-500/20 rounded-lg border border-yellow-500/50">
                 <div className="text-center mb-3">
                   <p className="text-sm text-gray-300">
-                    {hasTie ? 'Spinning from tied voters:' : `Top ${cat === 'actresses' ? 'Actress' : 'Actor'}:`}
+                    {hasTie ? 'Spinning from tied voters:' : `${fromTiebreaker ? '🔥 Tiebreaker Winner - ' : ''}Top ${cat === 'actresses' ? 'Actress' : 'Actor'}:`}
                   </p>
                   {!hasTie && (
                     <>
                       <p className={`text-2xl font-bold text-${color}-400`}>{topChoice.name}</p>
-                      <p className="text-sm text-gray-400">{topChoice.count} votes from {topChoice.voters.length} voters</p>
+                      <p className="text-sm text-gray-400">
+                        {topChoice.count} {fromTiebreaker ? 'tiebreaker votes' : 'votes'} from {topChoice.voters.length} voters
+                      </p>
                     </>
                   )}
                 </div>
@@ -892,7 +938,7 @@ export default function RedCarpetVoting() {
                   </div>
                   {!hasTie && (
                     <p className="text-xs text-gray-400 mt-2">
-                      These voters selected {topChoice.name}. One will be randomly chosen as the winner!
+                      These voters selected {topChoice.name} {fromTiebreaker ? 'in the tiebreaker' : ''}. One will be randomly chosen as the winner!
                     </p>
                   )}
                 </div>
