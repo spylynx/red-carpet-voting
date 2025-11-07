@@ -13,8 +13,8 @@ let pollStatus = {
 
 // Tiebreaker storage
 let tiebreakers = {
-  actresses: { active: false, round: 0, votes: [], tiedChoices: [], eligibleVoters: [] },
-  actors: { active: false, round: 0, votes: [], tiedChoices: [], eligibleVoters: [] }
+  actresses: { active: false, round: 0, votes: [], tiedChoices: [], eligibleFingerprints: [] },
+  actors: { active: false, round: 0, votes: [], tiedChoices: [], eligibleFingerprints: [] }
 };
 
 export async function GET() {
@@ -55,16 +55,16 @@ export async function POST(request) {
         );
       }
 
-      // Check if voter is eligible
-      if (!tiebreaker.eligibleVoters.includes(name)) {
+      // Check if voter is eligible (based on fingerprint)
+      if (!tiebreaker.eligibleFingerprints.includes(fingerprint)) {
         return NextResponse.json(
           { error: 'You are not eligible to vote in this tiebreaker round' },
           { status: 403 }
         );
       }
 
-      // Check if already voted in this tiebreaker round
-      const alreadyVoted = tiebreaker.votes.some(v => v.name === name);
+      // Check if already voted in this tiebreaker round (based on fingerprint)
+      const alreadyVoted = tiebreaker.votes.some(v => v.fingerprint === fingerprint);
       if (alreadyVoted) {
         return NextResponse.json(
           { error: 'You have already voted in this tiebreaker round!' },
@@ -151,7 +151,7 @@ export async function POST(request) {
 export async function PUT(request) {
   try {
     const body = await request.json();
-    const { action, category, status, tiedChoices, eligibleVoters } = body;
+    const { action, category, status, tiedChoices, eligibleFingerprints } = body;
 
     if (action === 'togglePoll') {
       if (!['actresses', 'actors'].includes(category)) {
@@ -182,7 +182,7 @@ export async function PUT(request) {
         round: (tiebreakers[category]?.round || 0) + 1,
         votes: [],
         tiedChoices: tiedChoices || [],
-        eligibleVoters: eligibleVoters || []
+        eligibleFingerprints: eligibleFingerprints || []
       };
 
       return NextResponse.json({
@@ -204,7 +204,7 @@ export async function PUT(request) {
         round: tiebreakers[category]?.round || 0,
         votes: [],
         tiedChoices: [],
-        eligibleVoters: []
+        eligibleFingerprints: []
       };
 
       return NextResponse.json({
@@ -234,8 +234,8 @@ export async function DELETE() {
     actorsOpen: true
   };
   tiebreakers = {
-    actresses: { active: false, round: 0, votes: [], tiedChoices: [], eligibleVoters: [] },
-    actors: { active: false, round: 0, votes: [], tiedChoices: [], eligibleVoters: [] }
+    actresses: { active: false, round: 0, votes: [], tiedChoices: [], eligibleFingerprints: [] },
+    actors: { active: false, round: 0, votes: [], tiedChoices: [], eligibleFingerprints: [] }
   };
   return NextResponse.json({ success: true });
 }
