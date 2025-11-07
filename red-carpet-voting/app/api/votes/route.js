@@ -309,6 +309,11 @@ export async function PUT(request) {
         );
       }
 
+      // Auto-close the poll when tiebreaker starts
+      const pollStatus = await getPollStatus();
+      pollStatus[`${category}Open`] = false;
+      await setPollStatus(pollStatus);
+
       const tiebreakers = await getTiebreakers();
       tiebreakers[category] = {
         active: true,
@@ -321,7 +326,8 @@ export async function PUT(request) {
 
       return NextResponse.json({
         success: true,
-        tiebreaker: tiebreakers[category]
+        tiebreaker: tiebreakers[category],
+        pollStatus
       });
     }
 
