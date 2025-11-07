@@ -118,6 +118,10 @@ export default function RedCarpetVoting() {
   const [winner, setWinner] = useState({ actresses: null, actors: null });
   const [spinRotation, setSpinRotation] = useState({ actresses: 0, actors: 0 });
 
+  // Tiebreaker states
+  const [tiebreakers, setTiebreakers] = useState({ actresses: null, actors: null });
+  const [tiebreakerChoice, setTiebreakerChoice] = useState(null);
+
   useEffect(() => {
     const fp = getBrowserFingerprint();
     setFingerprint(fp);
@@ -132,6 +136,7 @@ export default function RedCarpetVoting() {
       const data = await response.json();
       setVotes(data.votes || { actresses: [], actors: [] });
       setPollStatus(data.pollStatus || { actressesOpen: true, actorsOpen: true });
+      setTiebreakers(data.tiebreakers || { actresses: null, actors: null });
 
       const fp = fingerprint || getBrowserFingerprint();
       const actressVoted = data.votes?.actresses?.some(v => v.fingerprint === fp) || false;
@@ -212,11 +217,163 @@ export default function RedCarpetVoting() {
       .sort((a, b) => b.count - a.count);
   };
 
+  // Calculate tiebreaker results
+  const calculateTiebreakerResults = (cat) => {
+    const tiebreaker = tiebreakers[cat];
+    if (!tiebreaker || !tiebreaker.active) return null;
+
+    const tiebreakerVotes = {};
+    tiebreaker.tiedChoices.forEach(choice => {
+      tiebreakerVotes[choice] = { count: 0, voters: [] };
+    });
+
+    tiebreaker.votes.forEach(vote => {
+      if (tiebreakerVotes[vote.selection]) {
+        tiebreakerVotes[vote.selection].count++;
+        tiebreakerVotes[vote.selection].voters.push(vote.name);
+      }
+    });
+
+    return Object.entries(tiebreakerVotes)
+      .map(([name, data]) => ({ name, ...data }))
+      .sort((a, b) => b.count - a.count);
+  };
+
+  // Start tiebreaker round
+  const startTiebreaker = async (cat) => {
+    const results = calculateResults(cat);
+    const maxCount = results[0]?.count || 0;
+    const tiedChoices = results.filter(r => r.count === maxCount && r.count > 0);
+
+    if (tiedChoices.length <= 1) {
+      alert('No tie to break!');
+      return;
+    }
+
+    // Get all voters who voted for any of the tied choices
+    const eligibleVoters = [];
+    votes[cat].forEach(vote => {
+      const votedForTiedChoice = vote.selections.some(selection =>
+        tiedChoices.find(tc => tc.name === selection)
+      );
+      if (votedForTiedChoice && !eligibleVoters.includes(vote.name)) {
+        eligibleVoters.push(vote.name);
+      }
+    });
+
+    try {
+      await fetch('/api/votes', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'startTiebreaker',
+          category: cat,
+          tiedChoices: tiedChoices.map(tc => tc.name),
+          eligibleVoters
+        }),
+      });
+      loadData();
+      alert(`Tiebreaker started! ${eligibleVoters.length} voters are eligible to vote.`);
+    } catch (error) {
+      alert('Failed to start tiebreaker');
+    }
+  };
+
+  // Submit tiebreaker vote
+  const submitTiebreakerVote = async (cat) => {
+    if (!tiebreakerChoice) {
+      alert('Please select one option!');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/votes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: cat,
+          name: voterName,
+          selections: [tiebreakerChoice],
+          fingerprint,
+          isTiebreaker: true
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        alert('Tiebreaker vote submitted! 🌟');
+        setTiebreakerChoice(null);
+        loadData();
+      } else {
+        alert(data.error || 'Failed to submit tiebreaker vote');
+      }
+    } catch (error) {
+      alert('Failed to submit tiebreaker vote. Please try again.');
+    }
+  };
+
+  // Resolve tiebreaker and check if we need another round
+  const resolveTiebreaker = async (cat) => {
+    const tiebreakerResults = calculateTiebreakerResults(cat);
+    if (!tiebreakerResults || tiebreakerResults.length === 0) {
+      alert('No tiebreaker votes yet!');
+      return;
+    }
+
+    const maxCount = tiebreakerResults[0].count;
+    const stillTied = tiebreakerResults.filter(r => r.count === maxCount && r.count > 0);
+
+    if (stillTied.length > 1) {
+      // Still a tie, start another round
+      const eligibleVoters = tiebreakers[cat].eligibleVoters;
+
+      try {
+        await fetch('/api/votes', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'startTiebreaker',
+            category: cat,
+            tiedChoices: stillTied.map(tc => tc.name),
+            eligibleVoters
+          }),
+        });
+        loadData();
+        alert(`Still tied! Starting round ${(tiebreakers[cat]?.round || 0) + 1}`);
+      } catch (error) {
+        alert('Failed to start new tiebreaker round');
+      }
+    } else {
+      // We have a winner!
+      try {
+        await fetch('/api/votes', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'resolveTiebreaker',
+            category: cat
+          }),
+        });
+        loadData();
+        alert(`Tiebreaker resolved! Winner: ${tiebreakerResults[0].name}`);
+      } catch (error) {
+        alert('Failed to resolve tiebreaker');
+      }
+    }
+  };
+
   // Spinning wheel function for winner selection
   const spinWheel = (cat) => {
+    // Check if there's an active tiebreaker
+    if (tiebreakers[cat]?.active) {
+      alert('Please resolve the tiebreaker first!');
+      return;
+    }
+
     const results = calculateResults(cat);
 
-    // Handle tiebreaker: get all top choices with the highest vote count
+    // Check if there's still a tie at the top
     const maxCount = results[0]?.count || 0;
     const topChoices = results.filter(r => r.count === maxCount && r.count > 0);
 
@@ -225,8 +382,13 @@ export default function RedCarpetVoting() {
       return;
     }
 
-    // If there's a tie, randomly select one of the tied choices
-    const selectedChoice = topChoices[Math.floor(Math.random() * topChoices.length)];
+    if (topChoices.length > 1) {
+      alert(`There's a tie! Please start a tiebreaker round first.`);
+      return;
+    }
+
+    // We have a clear winner
+    const selectedChoice = topChoices[0];
 
     setIsSpinning({ ...isSpinning, [cat]: true });
     const spins = 5 + Math.random() * 3;
@@ -272,6 +434,10 @@ export default function RedCarpetVoting() {
       } catch (error) {
         alert('Failed to update poll status');
       }
+    } else if (pinAction?.type === 'startTiebreaker') {
+      await startTiebreaker(pinAction.category);
+    } else if (pinAction?.type === 'resolveTiebreaker') {
+      await resolveTiebreaker(pinAction.category);
     } else if (pinAction?.type === 'reset') {
       if (confirm('Reset ALL votes? This cannot be undone!')) {
         try {
@@ -381,6 +547,114 @@ export default function RedCarpetVoting() {
                 Submit Vote
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Tiebreaker voting view
+  if (view === 'tiebreaker') {
+    const tiebreaker = tiebreakers[category];
+    if (!tiebreaker || !tiebreaker.active) {
+      setView('dashboard');
+      return null;
+    }
+
+    const color = category === 'actresses' ? 'yellow' : 'blue';
+    const isEligible = tiebreaker.eligibleVoters.includes(voterName);
+    const hasVotedInTiebreaker = tiebreaker.votes.some(v => v.name === voterName);
+
+    return (
+      <div className={`min-h-screen bg-gradient-to-br from-${color === 'yellow' ? 'purple' : 'blue'}-900 via-${color === 'yellow' ? 'red' : 'purple'}-900 to-black text-white p-6`}>
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-8">
+            <h1 className={`text-4xl font-bold bg-gradient-to-r from-${color}-400 to-pink-500 bg-clip-text text-transparent mb-2`}>
+              🔥 TIEBREAKER ROUND {tiebreaker.round} 🔥
+            </h1>
+            <p className="text-xl text-gray-300">Vote for ONE {category === 'actresses' ? 'actress' : 'actor'} to break the tie!</p>
+          </div>
+
+          <div className="bg-black/40 backdrop-blur-lg rounded-2xl p-8 border-2 border-yellow-500/30 shadow-2xl">
+            <div className="mb-6 p-4 bg-yellow-500/20 rounded-lg border border-yellow-500/50">
+              <p className="text-yellow-400 font-semibold mb-2">Tied Choices:</p>
+              <p className="text-white">{tiebreaker.tiedChoices.join(', ')}</p>
+              <p className="text-sm text-gray-300 mt-2">
+                Only voters who voted for these choices can participate: {tiebreaker.eligibleVoters.length} eligible voters
+              </p>
+            </div>
+
+            {!isEligible ? (
+              <div className="p-6 bg-red-500/20 rounded-lg border border-red-500/50 text-center">
+                <p className="text-red-400 text-lg font-bold">You are not eligible to vote in this tiebreaker.</p>
+                <p className="text-gray-300 mt-2">Only voters who originally voted for one of the tied choices can participate.</p>
+                <button
+                  onClick={() => setView('dashboard')}
+                  className="mt-4 px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition-colors"
+                >
+                  Back to Dashboard
+                </button>
+              </div>
+            ) : hasVotedInTiebreaker ? (
+              <div className="p-6 bg-green-500/20 rounded-lg border border-green-500/50 text-center">
+                <p className="text-green-400 text-lg font-bold">✓ You have voted in this tiebreaker round!</p>
+                <p className="text-gray-300 mt-2">Waiting for other voters...</p>
+                <button
+                  onClick={() => setView('dashboard')}
+                  className="mt-4 px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition-colors"
+                >
+                  Back to Dashboard
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="mb-6">
+                  <label className="block text-lg font-semibold mb-3 text-yellow-400">
+                    Select ONE Option to Break the Tie
+                  </label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {tiebreaker.tiedChoices.map((choice) => {
+                      const isSelected = tiebreakerChoice === choice;
+
+                      return (
+                        <button
+                          key={choice}
+                          onClick={() => setTiebreakerChoice(choice)}
+                          className={`p-4 rounded-lg text-left transition-all ${
+                            isSelected
+                              ? `bg-gradient-to-r from-${color}-500 to-pink-500 text-white shadow-lg scale-105`
+                              : 'bg-white/10 hover:bg-white/20 text-white border border-yellow-500/30'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium">{choice}</span>
+                            {isSelected && <StarIcon size={20} fill={true} />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => {
+                      setView('dashboard');
+                      setTiebreakerChoice(null);
+                    }}
+                    className="flex-1 px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => submitTiebreakerVote(category)}
+                    className="flex-1 px-6 py-3 bg-gradient-to-r from-yellow-500 to-pink-500 hover:from-yellow-600 hover:to-pink-600 rounded-lg font-semibold shadow-lg transition-all transform hover:scale-105"
+                  >
+                    Submit Tiebreaker Vote
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -545,6 +819,28 @@ export default function RedCarpetVoting() {
                 </span>
               </h2>
 
+              {/* Tiebreaker Status */}
+              {tiebreakers.actresses?.active && (
+                <div className="mb-6 p-4 bg-orange-500/20 rounded-lg border-2 border-orange-500 animate-pulse">
+                  <p className="text-orange-400 font-bold text-lg mb-2">🔥 TIEBREAKER ROUND {tiebreakers.actresses.round} ACTIVE!</p>
+                  <p className="text-white mb-2">Tied: {tiebreakers.actresses.tiedChoices.join(', ')}</p>
+                  <p className="text-sm text-gray-300 mb-3">
+                    {tiebreakers.actresses.votes.length} / {tiebreakers.actresses.eligibleVoters.length} eligible voters have voted
+                  </p>
+                  {tiebreakers.actresses.eligibleVoters.includes(voterName) && (
+                    <button
+                      onClick={() => {
+                        setCategory('actresses');
+                        setView('tiebreaker');
+                      }}
+                      className="w-full px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg font-semibold transition-colors"
+                    >
+                      {tiebreakers.actresses.votes.some(v => v.name === voterName) ? '✓ You Voted' : '→ Vote in Tiebreaker'}
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Bubble Chart */}
               <div className="mb-6 h-64 relative bg-gradient-to-br from-yellow-500/10 to-pink-500/10 rounded-xl p-4 overflow-hidden">
                 {actressResults.slice(0, 10).map((actress, idx) => {
@@ -619,6 +915,28 @@ export default function RedCarpetVoting() {
                   {pollStatus.actorsOpen ? '🟢 OPEN' : '🔴 CLOSED'}
                 </span>
               </h2>
+
+              {/* Tiebreaker Status */}
+              {tiebreakers.actors?.active && (
+                <div className="mb-6 p-4 bg-cyan-500/20 rounded-lg border-2 border-cyan-500 animate-pulse">
+                  <p className="text-cyan-400 font-bold text-lg mb-2">🔥 TIEBREAKER ROUND {tiebreakers.actors.round} ACTIVE!</p>
+                  <p className="text-white mb-2">Tied: {tiebreakers.actors.tiedChoices.join(', ')}</p>
+                  <p className="text-sm text-gray-300 mb-3">
+                    {tiebreakers.actors.votes.length} / {tiebreakers.actors.eligibleVoters.length} eligible voters have voted
+                  </p>
+                  {tiebreakers.actors.eligibleVoters.includes(voterName) && (
+                    <button
+                      onClick={() => {
+                        setCategory('actors');
+                        setView('tiebreaker');
+                      }}
+                      className="w-full px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg font-semibold transition-colors"
+                    >
+                      {tiebreakers.actors.votes.some(v => v.name === voterName) ? '✓ You Voted' : '→ Vote in Tiebreaker'}
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Bubble Chart */}
               <div className="mb-6 h-64 relative bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-xl p-4 overflow-hidden">
@@ -707,6 +1025,34 @@ export default function RedCarpetVoting() {
             >
               <LockIcon size={20} />
               {pollStatus.actorsOpen ? 'Close' : 'Open'} Actors Poll
+            </button>
+            <button
+              onClick={() => handleAdminAction({ type: 'startTiebreaker', category: 'actresses' })}
+              className="px-6 py-3 bg-orange-600 hover:bg-orange-700 rounded-lg font-semibold transition-colors"
+              disabled={tiebreakers.actresses?.active}
+            >
+              {tiebreakers.actresses?.active ? '⏳ Actresses Tiebreaker Active' : '🔥 Start Actresses Tiebreaker'}
+            </button>
+            <button
+              onClick={() => handleAdminAction({ type: 'startTiebreaker', category: 'actors' })}
+              className="px-6 py-3 bg-cyan-600 hover:bg-cyan-700 rounded-lg font-semibold transition-colors"
+              disabled={tiebreakers.actors?.active}
+            >
+              {tiebreakers.actors?.active ? '⏳ Actors Tiebreaker Active' : '🔥 Start Actors Tiebreaker'}
+            </button>
+            <button
+              onClick={() => handleAdminAction({ type: 'resolveTiebreaker', category: 'actresses' })}
+              className="px-6 py-3 bg-green-600 hover:bg-green-700 rounded-lg font-semibold transition-colors"
+              disabled={!tiebreakers.actresses?.active}
+            >
+              ✓ Resolve Actresses Tiebreaker
+            </button>
+            <button
+              onClick={() => handleAdminAction({ type: 'resolveTiebreaker', category: 'actors' })}
+              className="px-6 py-3 bg-teal-600 hover:bg-teal-700 rounded-lg font-semibold transition-colors"
+              disabled={!tiebreakers.actors?.active}
+            >
+              ✓ Resolve Actors Tiebreaker
             </button>
             <button
               onClick={() => handleAdminAction({ type: 'reset' })}
